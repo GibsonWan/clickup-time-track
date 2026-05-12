@@ -180,20 +180,16 @@ async function fetchAllTimeEntries(teamId, token, startMs, endMs, userId) {
 
 function parseEntry(e) {
   const taskName    = e.task ? e.task.name : '(no task)';
-  const listName    = e.task?.list?.name  || '';
-  const folderName  = e.task?.folder?.name || '';
+  const projectCode = e.task?.list?.id   || '';
+  const projectInfo = e.task?.list?.name || e.task?.folder?.name || '';
 
-  // Parse "(CODE) Title" from list name
-  const match = listName.match(/^\(([^)]+)\)\s*(.+)$/);
-  const projectCode  = match ? match[1].trim() : '';
-  const projectTitle = match ? match[2].trim() : (listName || folderName || '');
+  const d    = new Date(parseInt(e.start));
+  const date = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 
-  const date         = new Date(parseInt(e.start)).toISOString().slice(0, 10);
-  const durationMs   = parseInt(e.duration || 0);
-  const hours        = +(durationMs / 3600000).toFixed(2);
-  const description  = e.description || '';
+  const durationMs = parseInt(e.duration || 0);
+  const hours      = +(durationMs / 3600000).toFixed(2);
 
-  return { date, projectCode, projectTitle, taskName, hours, description, raw: e };
+  return { date, projectCode, projectInfo, taskName, hours, raw: e };
 }
 
 // ---------- Render ----------
@@ -201,14 +197,14 @@ function renderTable(entries) {
   $tableBody.innerHTML = '';
 
   if (entries.length === 0) {
-    $tableBody.innerHTML = `<tr><td colspan="6" class="no-data">No entries found</td></tr>`;
+    $tableBody.innerHTML = `<tr><td colspan="5" class="no-data">No entries found</td></tr>`;
     $summary.classList.add('hidden');
     $rowCount.textContent = '';
     return;
   }
 
   const totalHours = entries.reduce((s, e) => s + e.hours, 0);
-  const projects   = new Set(entries.map(e => e.projectCode || e.projectTitle)).size;
+  const projects   = new Set(entries.map(e => e.projectCode || e.projectInfo)).size;
 
   $summary.innerHTML = `
     <div class="summary-item"><div class="label">Entries</div><div class="value">${entries.length}</div></div>
@@ -220,12 +216,11 @@ function renderTable(entries) {
   entries.forEach(e => {
     const tr = document.createElement('tr');
     tr.innerHTML = `
-      <td>${escHtml(e.date)}</td>
       <td>${e.projectCode ? `<span class="badge-code">${escHtml(e.projectCode)}</span>` : '<span style="color:var(--text-muted)">—</span>'}</td>
-      <td>${escHtml(e.projectTitle)}</td>
+      <td>${escHtml(e.projectInfo)}</td>
       <td>${escHtml(e.taskName)}</td>
+      <td>${escHtml(e.date)}</td>
       <td><span class="hours-val">${e.hours.toFixed(2)}</span></td>
-      <td class="desc-cell">${escHtml(e.description)}</td>
     `;
     $tableBody.appendChild(tr);
   });
@@ -237,14 +232,13 @@ function renderTable(entries) {
 function exportCSV() {
   if (state.entries.length === 0) return;
 
-  const headers = ['Date', 'Project Code', 'Project Title', 'Task Name', 'Hours', 'Description'];
+  const headers = ['Project Code', 'Project Info', 'Task / Location', 'Date', 'Time Spent'];
   const rows    = state.entries.map(e => [
-    e.date,
     e.projectCode,
-    e.projectTitle,
+    e.projectInfo,
     e.taskName,
+    e.date,
     e.hours.toFixed(2),
-    e.description,
   ]);
 
   const csv = [headers, ...rows]
