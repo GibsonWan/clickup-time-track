@@ -174,22 +174,70 @@ async function fetchAllTimeEntries(teamId, token, startMs, endMs, userId) {
     assignee:   userId,
   });
 
-  const data = await cuGet(`/team/${teamId}/time_entries?${params}`, token);
-  return (data.data || []).map(parseEntry);
+  const data    = await cuGet(`/team/${teamId}/time_entries?${params}`, token);
+  const entries = (data.data || []).map(parseEntry);
+  entries.sort((a, b) => a.sortDate.localeCompare(b.sortDate));
+  return entries;
 }
 
 function parseEntry(e) {
-  const taskName    = e.task ? e.task.name : '(no task)';
-  const projectCode = e.task?.list?.id   || '';
-  const projectInfo = e.task?.list?.name || e.task?.folder?.name || '';
+  const taskName = e.task ? e.task.name : '(no task)';
 
-  const d    = new Date(parseInt(e.start));
-  const date = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  // task_location is the reliable field in time entry responses
+  const loc        = e.task_location || {};
+  const listName   = loc.list_name   || e.task?.list?.name   || '';
+  const listId     = loc.list_id     || e.task?.list?.id     || '';
+  const folderName = loc.folder_name || e.task?.folder?.name || '';
+  const folderId   = loc.folder_id   || e.task?.folder?.id   || '';
+
+  let projectCode, projectInfo;
+
+  if (listName) {
+    // "List Name (195154245335)" — trailing pure-numeric code
+    const trailing = listName.match(/^(.*?)\s*\((\d+)\)\s*$/);
+    // "(CODE) List Name" — leading code (any chars)
+    const leading  = listName.match(/^\(([^)]+)\)\s*(.+)$/);
+
+    if (trailing) {
+      projectCode = trailing[2];
+      projectInfo = trailing[1].trim() || folderName || 'N/A';
+    } else if (leading) {
+      projectCode = leading[1].trim();
+      projectInfo = leading[2].trim();
+    } else {
+      projectCode = listId || folderId || 'N/A';
+      projectInfo = listName;
+    }
+  } else {
+    projectCode = folderId || 'N/A';
+    projectInfo = folderName || 'N/A';
+  }
+
+  if (!projectCode) projectCode = 'N/A';
+  if (!projectInfo) projectInfo = 'N/A';
+
+  const d        = new Date(parseInt(e.start));
+  const date     = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  const sortDate = d.toISOString().slice(0, 10);
 
   const durationMs = parseInt(e.duration || 0);
   const hours      = +(durationMs / 3600000).toFixed(2);
 
-  return { date, projectCode, projectInfo, taskName, hours, raw: e };
+  return { date, sortDate, projectCode, projectInfo, taskName, hours, folderName, raw: e };
+}
+
+// ---------- Helpers ----------
+function countWorkingDays(fromStr, toStr) {
+  const from = new Date(fromStr + 'T00:00:00');
+  const to   = new Date(toStr   + 'T00:00:00');
+  let count  = 0;
+  const d    = new Date(from);
+  while (d <= to) {
+    const day = d.getDay();
+    if (day !== 0 && day !== 6) count++;
+    d.setDate(d.getDate() + 1);
+  }
+  return count;
 }
 
 // ---------- Render ----------
@@ -203,20 +251,26 @@ function renderTable(entries) {
     return;
   }
 
-  const totalHours = entries.reduce((s, e) => s + e.hours, 0);
-  const projects   = new Set(entries.map(e => e.projectCode || e.projectInfo)).size;
+  const totalTracked = entries.reduce((s, e) => s + e.hours, 0);
+  const workingDays  = countWorkingDays($dateFrom.value, $dateTo.value);
+  const actualHours  = workingDays * 8;
+  const missing      = Math.max(0, actualHours - totalTracked);
+  const projects     = new Set(entries.map(e => e.folderName).filter(Boolean)).size;
 
   $summary.innerHTML = `
     <div class="summary-item"><div class="label">Entries</div><div class="value">${entries.length}</div></div>
-    <div class="summary-item"><div class="label">Total Hours</div><div class="value">${totalHours.toFixed(2)}</div></div>
     <div class="summary-item"><div class="label">Projects</div><div class="value">${projects}</div></div>
+    <div class="summary-item"><div class="label">Total Days</div><div class="value">${workingDays}</div></div>
+    <div class="summary-item"><div class="label">Time Tracked</div><div class="value">${totalTracked.toFixed(1)} hrs</div></div>
+    <div class="summary-item"><div class="label">Actual Hours</div><div class="value">${actualHours.toFixed(1)} hrs</div></div>
+    <div class="summary-item ${missing > 0 ? 'missing' : ''}"><div class="label">Missing</div><div class="value">${missing.toFixed(1)} hrs</div></div>
   `;
   $summary.classList.remove('hidden');
 
   entries.forEach(e => {
     const tr = document.createElement('tr');
     tr.innerHTML = `
-      <td>${e.projectCode ? `<span class="badge-code">${escHtml(e.projectCode)}</span>` : '<span style="color:var(--text-muted)">—</span>'}</td>
+      <td>${e.projectCode !== 'N/A' ? `<span class="badge-code">${escHtml(e.projectCode)}</span>` : '<span style="color:var(--text-muted)">N/A</span>'}</td>
       <td>${escHtml(e.projectInfo)}</td>
       <td>${escHtml(e.taskName)}</td>
       <td>${escHtml(e.date)}</td>
@@ -241,7 +295,20 @@ function exportCSV() {
     e.hours.toFixed(2),
   ]);
 
-  const csv = [headers, ...rows]
+  const totalTracked = state.entries.reduce((s, e) => s + e.hours, 0);
+  const workingDays  = countWorkingDays($dateFrom.value, $dateTo.value);
+  const actualHours  = workingDays * 8;
+  const missing      = Math.max(0, actualHours - totalTracked);
+
+  const totalsRows = [
+    ['', '', '', '', ''],
+    ['TOTAL Days', workingDays, '', '', ''],
+    ['TOTAL Time Tracked (hrs)', totalTracked.toFixed(1), '', '', ''],
+    ['TOTAL Actual Time of the Months (hrs)', actualHours.toFixed(1), '', '', ''],
+    ['TOTAL Missing Time Track (hrs)', missing.toFixed(1), '', '', ''],
+  ];
+
+  const csv = [headers, ...rows, ...totalsRows]
     .map(row => row.map(cell => csvCell(String(cell))).join(','))
     .join('\r\n');
 
