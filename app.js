@@ -174,26 +174,66 @@ async function fetchAllTimeEntries(teamId, token, startMs, endMs, userId) {
     assignee:   userId,
   });
 
-  const data    = await cuGet(`/team/${teamId}/time_entries?${params}`, token);
-  const entries = (data.data || []).map(parseEntry);
+  const data = await cuGet(`/team/${teamId}/time_entries?${params}`, token);
+  const raw  = data.data || [];
+
+  // Log first entry so we can inspect the real API shape in DevTools console
+  if (raw.length > 0) {
+    console.log('[CU Export] first entry keys:', Object.keys(raw[0]));
+    console.log('[CU Export] first entry:', JSON.stringify(raw[0], null, 2));
+  }
+
+  // Find entries where task_location gives no list name — fetch task details for those
+  const missingIds = [...new Set(
+    raw
+      .filter(e => {
+        const loc = e.task_location || e.taskLocation || {};
+        return e.task?.id && !(loc.list_name || loc.listName || e.task?.list?.name);
+      })
+      .map(e => e.task.id)
+  )];
+
+  const taskCache = {};
+  if (missingIds.length > 0) {
+    showStatus(`Fetching task details (${missingIds.length} tasks)...`, 'loading');
+    await Promise.all(
+      missingIds.map(async id => {
+        try {
+          const t = await cuGet(`/task/${id}`, token);
+          taskCache[id] = t;
+        } catch (_) {}
+      })
+    );
+  }
+
+  const entries = raw.map(e => parseEntry(e, taskCache));
   entries.sort((a, b) => a.sortDate.localeCompare(b.sortDate));
   return entries;
 }
 
-function parseEntry(e) {
+function parseEntry(e, taskCache = {}) {
   const taskName = e.task ? e.task.name : '(no task)';
 
-  // task_location is the reliable field in time entry responses
-  const loc        = e.task_location || {};
-  const listName   = loc.list_name   || e.task?.list?.name   || '';
-  const listId     = loc.list_id     || e.task?.list?.id     || '';
-  const folderName = loc.folder_name || e.task?.folder?.name || '';
-  const folderId   = loc.folder_id   || e.task?.folder?.id   || '';
+  // Try every known field path ClickUp uses across API versions
+  const loc        = e.task_location || e.taskLocation || {};
+  let listName     = loc.list_name   || loc.listName   || e.task?.list?.name   || '';
+  let listId       = loc.list_id     || loc.listId     || e.task?.list?.id     || '';
+  let folderName   = loc.folder_name || loc.folderName || e.task?.folder?.name || '';
+  let folderId     = loc.folder_id   || loc.folderId   || e.task?.folder?.id   || '';
+
+  // Last resort: task detail fetched individually
+  if (!listName && e.task?.id && taskCache[e.task.id]) {
+    const t  = taskCache[e.task.id];
+    listName   = t.list?.name    || '';
+    listId     = t.list?.id      || '';
+    folderName = t.folder?.name  || t.project?.name || '';
+    folderId   = t.folder?.id    || t.project?.id   || '';
+  }
 
   let projectCode, projectInfo;
 
   if (listName) {
-    // "(CODE) List Name" — leading code takes priority (unambiguous start position)
+    // "(CODE) List Name" — leading code takes priority
     const leading  = listName.match(/^\(([^)]+)\)\s*(.+)$/);
     // "List Name (195154245335)" — trailing pure-numeric code
     const trailing = listName.match(/^(.*?)\s*\((\d+)\)\s*$/);
