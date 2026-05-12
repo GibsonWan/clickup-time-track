@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ClickUp Time Tracker Export</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="app">
+    <header class="header">
+      <h1>ClickUp Time Export</h1>
+      <p class="subtitle">Export your time entries to CSV</p>
+    </header>
+
+    <main class="main">
+      <!-- Step 1: API Token -->
+      <section class="card" id="section-token">
+        <h2 class="card-title">
+          <span class="step-badge">1</span>
+          Connect to ClickUp
+        </h2>
+        <p class="card-desc">
+          Get your API token from
+          <strong>ClickUp → Settings → Apps → API Token</strong>
+        </p>
+        <div class="field-row">
+          <input
+            type="password"
+            id="api-token"
+            class="input"
+            placeholder="pk_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+            autocomplete="off"
+          />
+          <button class="btn btn-primary" id="btn-connect">Connect</button>
+        </div>
+        <div id="user-info" class="user-info hidden"></div>
+      </section>
+
+      <!-- Step 2: Date Range -->
+      <section class="card disabled" id="section-dates">
+        <h2 class="card-title">
+          <span class="step-badge">2</span>
+          Select Date Range
+        </h2>
+        <div class="date-row">
+          <div class="field-group">
+            <label for="date-from">From</label>
+            <input type="date" id="date-from" class="input" />
+          </div>
+          <div class="field-group">
+            <label for="date-to">To</label>
+            <input type="date" id="date-to" class="input" />
+          </div>
+          <div class="quick-range">
+            <button class="btn btn-ghost" data-range="this-month">This Month</button>
+            <button class="btn btn-ghost" data-range="last-month">Last Month</button>
+            <button class="btn btn-ghost" data-range="this-week">This Week</button>
+          </div>
+        </div>
+        <button class="btn btn-primary" id="btn-fetch" disabled>Fetch Time Entries</button>
+      </section>
+
+      <!-- Step 3: Preview & Export -->
+      <section class="card disabled" id="section-export">
+        <h2 class="card-title">
+          <span class="step-badge">3</span>
+          Preview &amp; Export
+        </h2>
+        <div id="summary" class="summary hidden"></div>
+        <div class="table-wrap" id="table-wrap">
+          <table class="data-table" id="data-table">
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Project Code</th>
+                <th>Project Title</th>
+                <th>Task Name</th>
+                <th>Hours</th>
+                <th>Description</th>
+              </tr>
+            </thead>
+            <tbody id="table-body"></tbody>
+          </table>
+        </div>
+        <div class="export-row">
+          <span id="row-count" class="row-count"></span>
+          <button class="btn btn-success" id="btn-export" disabled>Export CSV</button>
+        </div>
+      </section>
+
+      <!-- Status / Error -->
+      <div id="status-bar" class="status-bar hidden"></div>
+    </main>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
