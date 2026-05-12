@@ -193,17 +193,17 @@ function parseEntry(e) {
   let projectCode, projectInfo;
 
   if (listName) {
+    // "(CODE) List Name" — leading code takes priority (unambiguous start position)
+    const leading  = listName.match(/^\(([^)]+)\)\s*(.+)$/);
     // "List Name (195154245335)" — trailing pure-numeric code
     const trailing = listName.match(/^(.*?)\s*\((\d+)\)\s*$/);
-    // "(CODE) List Name" — leading code (any chars)
-    const leading  = listName.match(/^\(([^)]+)\)\s*(.+)$/);
 
-    if (trailing) {
-      projectCode = trailing[2];
-      projectInfo = trailing[1].trim() || folderName || 'N/A';
-    } else if (leading) {
+    if (leading) {
       projectCode = leading[1].trim();
       projectInfo = leading[2].trim();
+    } else if (trailing) {
+      projectCode = trailing[2];
+      projectInfo = trailing[1].trim() || folderName || 'N/A';
     } else {
       projectCode = listId || folderId || 'N/A';
       projectInfo = listName;
