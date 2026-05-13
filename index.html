@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ClickUp Time Export</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@600;700&family=Sora:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="noise-overlay"></div>
+
+  <div class="app">
+    <header class="header">
+      <div class="header-emblem">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="3" y="4" width="18" height="18" rx="2"/>
+          <path d="M16 2v4M8 2v4M3 10h18"/>
+          <path d="M8 14l2.5 2.5L16 11"/>
+        </svg>
+      </div>
+      <h1>ClickUp Time Export</h1>
+      <p class="subtitle">Pull your tracked time and export to CSV in seconds</p>
+      <div class="header-rule">
+        <span></span><span class="diamond">◆</span><span></span>
+      </div>
+    </header>
+
+    <main class="main">
+
+      <!-- Step 1: API Token -->
+      <section class="card" id="section-token">
+        <div class="card-header">
+          <span class="step-badge">01</span>
+          <h2 class="card-title">Connect to ClickUp</h2>
+        </div>
+        <p class="card-desc">
+          Find your token at <strong>Settings → Apps → API Token</strong> inside ClickUp.
+        </p>
+        <div class="field-row">
+          <div class="input-wrap">
+            <svg class="input-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/>
+            </svg>
+            <input type="password" id="api-token" class="input" placeholder="pk_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" autocomplete="off" />
+          </div>
+          <button class="btn btn-primary" id="btn-connect">
+            Connect
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+          </button>
+        </div>
+        <div id="user-info" class="user-info hidden"></div>
+      </section>
+
+      <!-- Step 2: Date Range -->
+      <section class="card disabled" id="section-dates">
+        <div class="card-header">
+          <span class="step-badge">02</span>
+          <h2 class="card-title">Select Date Range</h2>
+        </div>
+        <div class="date-row">
+          <div class="field-group">
+            <label for="date-from">From</label>
+            <input type="date" id="date-from" class="input" />
+          </div>
+          <div class="date-sep">→</div>
+          <div class="field-group">
+            <label for="date-to">To</label>
+            <input type="date" id="date-to" class="input" />
+          </div>
+          <div class="quick-range">
+            <button class="btn btn-chip" data-range="this-week">This Week</button>
+            <button class="btn btn-chip" data-range="this-month">This Month</button>
+            <button class="btn btn-chip" data-range="last-month">Last Month</button>
+          </div>
+        </div>
+        <button class="btn btn-primary" id="btn-fetch" disabled>
+          Fetch Time Entries
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="7 10 12 15 17 10"/><path d="M12 15V3"/><path d="M5 21h14"/></svg>
+        </button>
+      </section>
+
+      <!-- Step 3: Preview & Export -->
+      <section class="card disabled" id="section-export">
+        <div class="card-header">
+          <span class="step-badge">03</span>
+          <h2 class="card-title">Preview &amp; Export</h2>
+        </div>
+        <div id="summary" class="summary hidden"></div>
+        <div class="table-wrap" id="table-wrap">
+          <table class="data-table" id="data-table">
+            <thead>
+              <tr>
+                <th>Project Code</th>
+                <th>Project Info</th>
+                <th>Task / Location</th>
+                <th>Date</th>
+                <th>Time Spent</th>
+              </tr>
+            </thead>
+            <tbody id="table-body"></tbody>
+          </table>
+        </div>
+        <div class="export-row">
+          <span id="row-count" class="row-count"></span>
+          <button class="btn btn-success" id="btn-export" disabled>
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="7 10 12 15 17 10"/><path d="M12 15V3"/><path d="M5 21h14"/></svg>
+            Export CSV
+          </button>
+        </div>
+      </section>
+
+      <div id="status-bar" class="status-bar hidden"></div>
+    </main>
+
+    <footer class="footer">
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+      Your token stays in your browser — never sent anywhere except ClickUp's API.
+    </footer>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
