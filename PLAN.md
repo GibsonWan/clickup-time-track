@@ -55,10 +55,13 @@ Turns the blunt "Missing X hrs" number into an actual list of untracked tasks.
   appear. This is the literal "within the selected time" the user wanted, and it cuts the noise.
 - Statuses are heavily customized per space (`hq`, `daily`, `on leave`, …), so generic status names
   can't decide "should have been tracked" — due date is the reliable period boundary.
+- **No-due-date tasks are also included** via a second query: ClickUp's due-date filter drops tasks
+  with no due date, so `fetchInRange` runs a `due_date_gt/lt` query PLUS a `date_updated_gt/lt` query
+  kept to `!due_date` tasks, then merges/dedupes. So a forgotten task with no due date still surfaces
+  if it was active in the window. (Trade-off: reintroduces some no-due recurring-item noise.)
 
 ### Known limitations / tuning fast-follows
-- **Tasks with no due date do not appear** (the tradeoff of due-date scoping). If a forgotten task
-  was never given a due date, it won't surface — revisit if this misses real cases.
+- No-due-date tasks are scoped only by "updated in range" (no due date to bound them) — can be noisier.
 - A task worked-and-completed with time logged elsewhere is correctly treated as tracked.
 
 ## Phase 2 — Log time from the app (make it read-write) ✅ (implemented)

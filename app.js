@@ -321,22 +321,39 @@ async function loadUntracked(startMs, endMs, entries) {
 }
 
 async function fetchAssignedTasks(teamId, token, userId, startMs, endMs) {
+  const base = `assignees%5B%5D=${encodeURIComponent(userId)}&subtasks=true&include_closed=true`;
+  return fetchInRange(teamId, token, base, startMs, endMs);
+}
+
+// Returns tasks either DUE within the range, OR with no due date but updated within the range.
+// ClickUp's due_date filter drops no-due-date tasks, so we run two queries and merge.
+async function fetchInRange(teamId, token, baseQs, startMs, endMs) {
+  const dueInRange = await pagedTasks(
+    teamId, token, `${baseQs}&due_date_gt=${startMs - 1}&due_date_lt=${endMs + 1}`);
+  const noDueButActive = (await pagedTasks(
+    teamId, token, `${baseQs}&date_updated_gt=${startMs}&date_updated_lt=${endMs}`))
+    .filter(t => !t.due_date);
+  return dedupeById([...dueInRange, ...noDueButActive]);
+}
+
+async function pagedTasks(teamId, token, filterQs, maxPages = 30) {
   const tasks = [];
-  // Scope to tasks DUE within the selected range (not merely updated in it), so only
-  // tasks that belonged to this period appear — no out-of-period noise.
-  for (let page = 0; page < 15; page++) {
-    const qs =
-      `page=${page}` +
-      `&assignees%5B%5D=${encodeURIComponent(userId)}` +
-      `&due_date_gt=${startMs - 1}` +
-      `&due_date_lt=${endMs + 1}` +
-      `&subtasks=true&include_closed=true`;
-    const data  = await cuGet(`/team/${teamId}/task?${qs}`, token);
+  for (let page = 0; page < maxPages; page++) {
+    const data  = await cuGet(`/team/${teamId}/task?page=${page}&${filterQs}`, token);
     const batch = data.tasks || [];
     tasks.push(...batch);
     if (batch.length < 100) break; // last page
   }
   return tasks;
+}
+
+function dedupeById(list) {
+  const seen = new Set();
+  return list.filter(t => {
+    if (seen.has(t.id)) return false;
+    seen.add(t.id);
+    return true;
+  });
 }
 
 function renderUntracked() {
@@ -348,7 +365,7 @@ function renderUntracked() {
 
   if (list.length === 0) {
     $untrackedList.innerHTML =
-      `<div class="untracked-empty">Every task assigned to you and due in this range has time logged. 🎉</div>`;
+      `<div class="untracked-empty">Every task assigned to you and active in this range has time logged. 🎉</div>`;
     return;
   }
 
@@ -527,18 +544,8 @@ async function fetchSpaces(teamId, token) {
 
 async function fetchSpaceTasks(teamId, token, spaceIds, startMs, endMs) {
   const spaceParams = spaceIds.map(id => `space_ids%5B%5D=${encodeURIComponent(id)}`).join('&');
-  const tasks = [];
-  for (let page = 0; page < 30; page++) { // safety cap: 3000 tasks
-    const qs =
-      `page=${page}&${spaceParams}` +
-      `&due_date_gt=${startMs - 1}&due_date_lt=${endMs + 1}` +
-      `&subtasks=true&include_closed=true`;
-    const data  = await cuGet(`/team/${teamId}/task?${qs}`, token);
-    const batch = data.tasks || [];
-    tasks.push(...batch);
-    if (batch.length < 100) break;
-  }
-  return tasks;
+  const base = `${spaceParams}&subtasks=true&include_closed=true`;
+  return fetchInRange(teamId, token, base, startMs, endMs);
 }
 
 // Per-task involvement check with a concurrency pool, cap, and 429 backoff.
