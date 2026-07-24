@@ -4,24 +4,37 @@ const API = 'https://api.clickup.com/api/v2';
 let state = {
   token: '',
   user: null,
+  teams: [],
   teamId: null,
   entries: [],
+  untracked: [],
+  deepscan: [],
 };
 
 // ---------- DOM refs ----------
-const $token      = document.getElementById('api-token');
-const $btnConnect = document.getElementById('btn-connect');
-const $userInfo   = document.getElementById('user-info');
-const $secDates   = document.getElementById('section-dates');
-const $secExport  = document.getElementById('section-export');
-const $dateFrom   = document.getElementById('date-from');
-const $dateTo     = document.getElementById('date-to');
-const $btnFetch   = document.getElementById('btn-fetch');
-const $tableBody  = document.getElementById('table-body');
-const $summary    = document.getElementById('summary');
-const $rowCount   = document.getElementById('row-count');
-const $btnExport  = document.getElementById('btn-export');
-const $statusBar  = document.getElementById('status-bar');
+const $token       = document.getElementById('api-token');
+const $btnConnect  = document.getElementById('btn-connect');
+const $userInfo    = document.getElementById('user-info');
+const $wsWrap      = document.getElementById('workspace-wrap');
+const $wsSelect    = document.getElementById('workspace-select');
+const $secDates    = document.getElementById('section-dates');
+const $secExport   = document.getElementById('section-export');
+const $secUntracked = document.getElementById('section-untracked');
+const $dateFrom    = document.getElementById('date-from');
+const $dateTo      = document.getElementById('date-to');
+const $btnFetch    = document.getElementById('btn-fetch');
+const $tableBody   = document.getElementById('table-body');
+const $summary     = document.getElementById('summary');
+const $rowCount    = document.getElementById('row-count');
+const $btnExport   = document.getElementById('btn-export');
+const $statusBar   = document.getElementById('status-bar');
+const $untrackedList  = document.getElementById('untracked-list');
+const $untrackedCount = document.getElementById('untracked-count');
+const $untrackedDueOnly = document.getElementById('untracked-duedated');
+const $secDeepscan    = document.getElementById('section-deepscan');
+const $btnDeepscan    = document.getElementById('btn-deepscan');
+const $deepscanList   = document.getElementById('deepscan-list');
+const $deepscanCount  = document.getElementById('deepscan-count');
 
 // ---------- Init ----------
 (function init() {
@@ -58,6 +71,12 @@ function bindEvents() {
   $dateTo.addEventListener('change', validateDates);
 
   $btnExport.addEventListener('click', exportCSV);
+
+  $wsSelect.addEventListener('change', () => { state.teamId = $wsSelect.value; });
+  $untrackedDueOnly.addEventListener('change', renderUntracked);
+  $untrackedList.addEventListener('click', onUntrackedClick);
+  $btnDeepscan.addEventListener('click', deepScan);
+  $deepscanList.addEventListener('click', onUntrackedClick);
 }
 
 function applyQuickRange(range) {
@@ -103,13 +122,18 @@ async function handleConnect() {
       throw new Error('No workspaces found for this token.');
     }
 
-    state.token  = token;
-    state.user   = user.user;
-    state.teamId = teams.teams[0].id;
+    state.token = token;
+    state.user  = user.user;
+    state.teams = teams.teams;
+
+    // Default to MediaPlus Digital if present, otherwise the first workspace.
+    const preferred = state.teams.find(t => /mediaplus/i.test(t.name || '')) || state.teams[0];
+    state.teamId = preferred.id;
 
     sessionStorage.setItem('cu_token', token);
 
     renderUserInfo(state.user);
+    renderWorkspaces(state.teams, state.teamId);
     $secDates.classList.remove('disabled');
     validateDates();
     hideStatus();
@@ -137,6 +161,13 @@ function renderUserInfo(user) {
   $userInfo.classList.remove('hidden');
 }
 
+function renderWorkspaces(teams, selectedId) {
+  $wsSelect.innerHTML = teams
+    .map(t => `<option value="${escHtml(t.id)}" ${t.id === selectedId ? 'selected' : ''}>${escHtml(t.name || 'Workspace ' + t.id)}</option>`)
+    .join('');
+  $wsWrap.classList.remove('hidden');
+}
+
 // ---------- Fetch ----------
 async function handleFetch() {
   if (!state.token) return;
@@ -153,6 +184,14 @@ async function handleFetch() {
     renderTable(entries);
     $secExport.classList.remove('disabled');
     $btnExport.disabled = entries.length === 0;
+
+    // Phase 1: find tasks assigned to me, active in this range, with no time logged.
+    await loadUntracked(startMs, endMs, entries);
+
+    // Deep scan is available once a range is fetched (it reuses these entries + dates).
+    $secDeepscan.classList.remove('disabled');
+    $btnDeepscan.disabled = false;
+
     hideStatus();
 
     if (entries.length === 0) {
@@ -230,6 +269,360 @@ function parseEntry(e, taskCache = {}) {
     folderId   = t.folder?.id    || t.project?.id   || '';
   }
 
+  const { projectCode, projectInfo } = parseListName(listName, listId, folderId, folderName);
+
+  const d        = new Date(parseInt(e.start));
+  const date     = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  const sortDate = d.toISOString().slice(0, 10);
+
+  const durationMs = parseInt(e.duration || 0);
+  const hours      = +(durationMs / 3600000).toFixed(2);
+
+  return { date, sortDate, projectCode, projectInfo, taskName, hours, folderName, raw: e };
+}
+
+// ---------- Untracked tasks (Phase 1) ----------
+async function loadUntracked(startMs, endMs, entries) {
+  $secUntracked.classList.remove('disabled');
+
+  try {
+    showStatus('Checking for untracked tasks...', 'loading');
+    const tasks = await fetchAssignedTasks(state.teamId, state.token, state.user.id, startMs, endMs);
+
+    // Hours logged per task id within this range (from the entries we already have).
+    const loggedByTask = {};
+    entries.forEach(en => {
+      const id = en.raw && en.raw.task ? en.raw.task.id : null;
+      if (id) loggedByTask[id] = (loggedByTask[id] || 0) + en.hours;
+    });
+
+    // Untracked = assigned & active in range, but no time logged. De-dupe by id.
+    const seen = new Set();
+    const untracked = tasks.filter(t => {
+      if (seen.has(t.id)) return false;
+      seen.add(t.id);
+      return !(loggedByTask[t.id] > 0);
+    });
+
+    // Due-dated first (earliest due first), then the rest by name.
+    untracked.sort((a, b) => {
+      const da = a.due_date ? parseInt(a.due_date) : Infinity;
+      const db = b.due_date ? parseInt(b.due_date) : Infinity;
+      if (da !== db) return da - db;
+      return (a.name || '').localeCompare(b.name || '');
+    });
+
+    state.untracked = untracked;
+    renderUntracked();
+  } catch (err) {
+    state.untracked = [];
+    $untrackedCount.textContent = '';
+    $untrackedList.innerHTML =
+      `<div class="untracked-note">Couldn't load assigned tasks: ${escHtml(err.message || 'request failed')}</div>`;
+  }
+}
+
+async function fetchAssignedTasks(teamId, token, userId, startMs, endMs) {
+  const tasks = [];
+  // Scope to tasks touched within the range so backlog/future items don't flood the list.
+  for (let page = 0; page < 15; page++) {
+    const qs =
+      `page=${page}` +
+      `&assignees%5B%5D=${encodeURIComponent(userId)}` +
+      `&date_updated_gt=${startMs}` +
+      `&date_updated_lt=${endMs}` +
+      `&subtasks=true&include_closed=true`;
+    const data  = await cuGet(`/team/${teamId}/task?${qs}`, token);
+    const batch = data.tasks || [];
+    tasks.push(...batch);
+    if (batch.length < 100) break; // last page
+  }
+  return tasks;
+}
+
+function renderUntracked() {
+  let list = state.untracked;
+  if ($untrackedDueOnly.checked) list = list.filter(t => t.due_date);
+
+  $untrackedCount.textContent = list.length
+    ? `${list.length} task${list.length !== 1 ? 's' : ''}`
+    : 'All clear';
+
+  if (list.length === 0) {
+    $untrackedList.innerHTML =
+      `<div class="untracked-empty">Every assigned task active in this range has time logged. 🎉</div>`;
+    return;
+  }
+
+  const defaultDate = $dateTo.value; // within the fetched range, so the row clears after logging
+  $untrackedList.innerHTML = list.map(t => taskItemHTML(t, defaultDate, { showAssignee: false })).join('');
+}
+
+// Shared markup for a task row with an inline "Add time" form. Used by both the
+// assigned-untracked list and the deep-scan list.
+function taskItemHTML(t, defaultDate, opts = {}) {
+  const listObj  = t.list || {};
+  const { projectCode } = parseListName(listObj.name || '', listObj.id || '', '', '');
+  const status   = t.status && t.status.status ? t.status.status : '';
+  const dueLabel = t.due_date ? fmtDue(parseInt(t.due_date)) : '';
+  const url      = t.url || `https://app.clickup.com/t/${t.id}`;
+  const name     = t.name || '(untitled task)';
+  const assignees = (t.assignees || []).map(a => a.username).filter(Boolean).join(', ');
+
+  const pills = [
+    projectCode !== 'N/A' ? `<span class="u-pill">${escHtml(projectCode)}</span>` : '',
+    status ? `<span class="u-pill">${escHtml(status)}</span>` : '',
+    dueLabel ? `<span class="u-pill u-due">Due ${escHtml(dueLabel)}</span>` : '',
+    (opts.showAssignee && assignees) ? `<span class="u-pill u-assignee">Now: ${escHtml(assignees)}</span>` : '',
+  ].join('');
+
+  return `
+    <div class="untracked-item ${t.due_date ? 'is-due' : ''}" data-task-id="${escHtml(t.id)}" data-task-name="${escHtml(name)}">
+      <div class="u-body">
+        <div class="u-name">${escHtml(name)}</div>
+        <div class="u-meta">${pills}</div>
+        <div class="u-form">
+          <input type="number" class="input u-hours" min="0.25" step="0.25" placeholder="Hrs" aria-label="Hours" />
+          <input type="date" class="input u-date" value="${escHtml(defaultDate)}" aria-label="Date" />
+          <button class="btn btn-success u-save" type="button">Log</button>
+          <button class="btn u-cancel" type="button">Cancel</button>
+        </div>
+      </div>
+      <div class="u-actions">
+        <button class="btn u-add" type="button">Add time</button>
+        <a class="u-open" href="${escHtml(url)}" target="_blank" rel="noopener">
+          Open
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17L17 7M7 7h10v10"/></svg>
+        </a>
+      </div>
+    </div>`;
+}
+
+// Inline "Add time" handling (event-delegated on the untracked list).
+async function onUntrackedClick(e) {
+  const item = e.target.closest('.untracked-item');
+  if (!item) return;
+
+  if (e.target.closest('.u-add')) {
+    item.classList.add('editing');
+    const h = item.querySelector('.u-hours');
+    if (h) h.focus();
+    return;
+  }
+
+  if (e.target.closest('.u-cancel')) {
+    item.classList.remove('editing');
+    return;
+  }
+
+  const saveBtn = e.target.closest('.u-save');
+  if (!saveBtn) return;
+
+  const taskId  = item.dataset.taskId;
+  const name    = item.dataset.taskName || 'task';
+  const hours   = parseFloat(item.querySelector('.u-hours').value);
+  const dateStr = item.querySelector('.u-date').value;
+
+  if (!(hours > 0)) {
+    showStatus('Enter a number of hours greater than 0.', 'error');
+    setTimeout(hideStatus, 3000);
+    return;
+  }
+  if (!dateStr) {
+    showStatus('Pick a date for the time entry.', 'error');
+    setTimeout(hideStatus, 3000);
+    return;
+  }
+
+  saveBtn.disabled = true;
+  showStatus(`Logging ${hours}h to "${name}"...`, 'loading');
+
+  try {
+    await addTimeEntry(taskId, dateStr, hours);
+    showStatus(`Logged ${hours}h to "${name}".`, 'success');
+    setTimeout(hideStatus, 3000);
+    // Remove the row immediately (covers the deep-scan list, which handleFetch won't rebuild)...
+    state.deepscan = state.deepscan.filter(t => t.id !== taskId);
+    item.remove();
+    // ...then refresh timesheet + assigned-untracked list from source of truth so totals stay correct.
+    await handleFetch();
+  } catch (err) {
+    showStatus(err.message || 'Failed to log time.', 'error');
+    saveBtn.disabled = false;
+  }
+}
+
+// ---------- Deep scan: handed-off tasks (watcher/creator based) ----------
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const DEEPSCAN_CAP = 150; // max per-task involvement lookups per scan
+
+async function deepScan() {
+  if (!state.token) return;
+
+  const startMs = new Date($dateFrom.value + 'T00:00:00').getTime();
+  const endMs   = new Date($dateTo.value   + 'T23:59:59').getTime();
+  const userId  = String(state.user.id);
+
+  $btnDeepscan.disabled = true;
+  try {
+    showStatus('Deep scan: loading spaces...', 'loading');
+    const spaceIds = await fetchSpaces(state.teamId, state.token);
+
+    showStatus(`Deep scan: fetching tasks across ${spaceIds.length} space${spaceIds.length !== 1 ? 's' : ''}...`, 'loading');
+    const tasks = await fetchSpaceTasks(state.teamId, state.token, spaceIds, startMs, endMs);
+
+    // Candidates: active in range, not already mine by assignment, and no time logged by me.
+    const loggedTaskIds = new Set(state.entries.map(en => (en.raw && en.raw.task) ? en.raw.task.id : null).filter(Boolean));
+    const seen = new Set();
+    const candidates = tasks.filter(t => {
+      if (seen.has(t.id)) return false;
+      seen.add(t.id);
+      if (loggedTaskIds.has(t.id)) return false;
+      const assigneeIds = (t.assignees || []).map(a => String(a.id));
+      if (assigneeIds.includes(userId)) return false; // already covered by the Untracked card
+      return true;
+    });
+
+    let flagged, checked, capped = 0;
+
+    // Fast path: if the bulk list ever includes watchers, no per-task calls needed.
+    if (candidates.length > 0 && Array.isArray(candidates[0].watchers)) {
+      flagged = candidates.filter(t => isMine(t, userId));
+      checked = candidates.length;
+    } else {
+      const res = await checkInvolvement(candidates, userId, state.token, DEEPSCAN_CAP);
+      flagged = res.flagged;
+      checked = res.checked;
+      capped  = res.capped;
+    }
+
+    flagged.sort((a, b) => {
+      const da = a.due_date ? parseInt(a.due_date) : Infinity;
+      const db = b.due_date ? parseInt(b.due_date) : Infinity;
+      if (da !== db) return da - db;
+      return (a.name || '').localeCompare(b.name || '');
+    });
+
+    state.deepscan = flagged;
+    renderDeepScan(flagged, { scanned: tasks.length, candidates: candidates.length, checked, capped });
+    hideStatus();
+    showStatus(`Deep scan complete — ${flagged.length} task${flagged.length !== 1 ? 's' : ''} found.`, 'success');
+    setTimeout(hideStatus, 3500);
+  } catch (err) {
+    showStatus(err.message || 'Deep scan failed.', 'error');
+  } finally {
+    $btnDeepscan.disabled = false;
+  }
+}
+
+function isMine(fullTask, userId) {
+  const watchers = fullTask.watchers || [];
+  const isWatcher = watchers.some(w => String(w.id) === userId);
+  const isCreator = fullTask.creator && String(fullTask.creator.id) === userId;
+  return isWatcher || isCreator;
+}
+
+async function fetchSpaces(teamId, token) {
+  const data = await cuGet(`/team/${teamId}/space?archived=false`, token);
+  return (data.spaces || []).map(s => s.id);
+}
+
+async function fetchSpaceTasks(teamId, token, spaceIds, startMs, endMs) {
+  const spaceParams = spaceIds.map(id => `space_ids%5B%5D=${encodeURIComponent(id)}`).join('&');
+  const tasks = [];
+  for (let page = 0; page < 30; page++) { // safety cap: 3000 tasks
+    const qs =
+      `page=${page}&${spaceParams}` +
+      `&date_updated_gt=${startMs}&date_updated_lt=${endMs}` +
+      `&subtasks=true&include_closed=true`;
+    const data  = await cuGet(`/team/${teamId}/task?${qs}`, token);
+    const batch = data.tasks || [];
+    tasks.push(...batch);
+    if (batch.length < 100) break;
+  }
+  return tasks;
+}
+
+// Per-task involvement check with a concurrency pool, cap, and 429 backoff.
+async function checkInvolvement(candidates, userId, token, cap) {
+  const toCheck = candidates.slice(0, cap);
+  const capped  = candidates.length - toCheck.length;
+  const flagged = [];
+  let checked = 0;
+  let idx = 0;
+  const POOL = 4;
+
+  async function worker() {
+    while (idx < toCheck.length) {
+      const t = toCheck[idx++];
+      try {
+        const full = await getTaskWithRetry(t.id, token);
+        checked++;
+        if (isMine(full, userId)) {
+          flagged.push({ ...t, assignees: full.assignees || t.assignees, creator: full.creator });
+        }
+      } catch (_) { /* skip tasks that error out */ }
+      if (checked % 10 === 0) {
+        showStatus(`Deep scan: checked ${checked}/${toCheck.length} tasks...`, 'loading');
+      }
+    }
+  }
+
+  await Promise.all(Array.from({ length: POOL }, worker));
+  return { flagged, checked, capped };
+}
+
+async function getTaskWithRetry(taskId, token, tries = 3) {
+  for (let i = 0; i < tries; i++) {
+    try {
+      return await cuGet(`/task/${taskId}`, token);
+    } catch (e) {
+      if (/\b429\b/.test(e.message) && i < tries - 1) { await sleep(2500); continue; }
+      throw e;
+    }
+  }
+}
+
+function renderDeepScan(list, stats) {
+  $deepscanCount.textContent = list.length ? `${list.length} found` : 'None found';
+
+  let html = '';
+  if (stats) {
+    let note = `Scanned ${stats.scanned} tasks · ${stats.candidates} candidates · checked ${stats.checked} for your involvement`;
+    if (stats.capped > 0) {
+      note += ` · ⚠ ${stats.capped} not checked (scan cap reached — narrow the date range or it won't cover everything)`;
+    }
+    html += `<div class="deepscan-stats">${escHtml(note)}</div>`;
+  }
+
+  if (list.length === 0) {
+    html += `<div class="untracked-empty">No handed-off tasks you're involved in are missing time in this range.</div>`;
+  } else {
+    const defaultDate = $dateTo.value;
+    html += list.map(t => taskItemHTML(t, defaultDate, { showAssignee: true })).join('');
+  }
+
+  $deepscanList.innerHTML = html;
+}
+
+async function addTimeEntry(taskId, dateStr, hours) {
+  const startMs    = new Date(dateStr + 'T09:00:00').getTime(); // 9am local on the chosen day
+  const durationMs = Math.round(hours * 3600000);
+  // Omit assignee so ClickUp attributes the entry to the token owner (self).
+  return cuPost(`/team/${state.teamId}/time_entries`, state.token, {
+    tid: taskId,
+    start: startMs,
+    duration: durationMs,
+    billable: false,
+  });
+}
+
+function fmtDue(ms) {
+  return new Date(ms).toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' });
+}
+
+// Derive a "(CODE) Name" project code + label from a ClickUp list name.
+function parseListName(listName, listId, folderId, folderName) {
   let projectCode, projectInfo;
 
   if (listName) {
@@ -255,15 +648,7 @@ function parseEntry(e, taskCache = {}) {
 
   if (!projectCode) projectCode = 'N/A';
   if (!projectInfo) projectInfo = 'N/A';
-
-  const d        = new Date(parseInt(e.start));
-  const date     = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-  const sortDate = d.toISOString().slice(0, 10);
-
-  const durationMs = parseInt(e.duration || 0);
-  const hours      = +(durationMs / 3600000).toFixed(2);
-
-  return { date, sortDate, projectCode, projectInfo, taskName, hours, folderName, raw: e };
+  return { projectCode, projectInfo };
 }
 
 // ---------- Helpers ----------
@@ -384,6 +769,21 @@ async function cuGet(path, token) {
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
     throw new Error(body.err || `ClickUp API error ${res.status}`);
+  }
+
+  return res.json();
+}
+
+async function cuPost(path, token, body) {
+  const res = await fetch(`${API}${path}`, {
+    method: 'POST',
+    headers: { Authorization: token, 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+
+  if (!res.ok) {
+    const b = await res.json().catch(() => ({}));
+    throw new Error(b.err || `ClickUp API error ${res.status}`);
   }
 
   return res.json();

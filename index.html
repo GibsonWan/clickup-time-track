@@ -52,6 +52,10 @@
           </button>
         </div>
         <div id="user-info" class="user-info hidden"></div>
+        <div id="workspace-wrap" class="workspace-wrap hidden">
+          <label for="workspace-select">Workspace</label>
+          <select id="workspace-select" class="input"></select>
+        </div>
       </section>
 
       <!-- Step 2: Date Range -->
@@ -110,6 +114,40 @@
             Export CSV
           </button>
         </div>
+      </section>
+
+      <!-- Step 4: Untracked Tasks -->
+      <section class="card disabled" id="section-untracked">
+        <div class="card-header">
+          <span class="step-badge">04</span>
+          <h2 class="card-title">Untracked Tasks</h2>
+          <span id="untracked-count" class="untracked-count"></span>
+        </div>
+        <p class="card-desc">
+          Tasks assigned to you that were active in this range but have <strong>no time logged</strong> — time you may have forgotten to track. Use <strong>Add time</strong> to log it without leaving this page.
+        </p>
+        <label class="untracked-filter">
+          <input type="checkbox" id="untracked-duedated" />
+          <span>Only show tasks with a due date</span>
+        </label>
+        <div class="untracked-list" id="untracked-list"></div>
+      </section>
+
+      <!-- Step 5: Deep Scan (handed-off tasks) -->
+      <section class="card disabled" id="section-deepscan">
+        <div class="card-header">
+          <span class="step-badge">05</span>
+          <h2 class="card-title">Deep Scan — Handed-off Tasks</h2>
+          <span id="deepscan-count" class="untracked-count"></span>
+        </div>
+        <p class="card-desc">
+          Scans your spaces for tasks you <strong>watch</strong> (i.e. were assigned to you at some point) or <strong>created</strong>, active in this range, with <strong>no time logged</strong> — even if they've since been reassigned to someone else. Heavier than the checks above, so it runs on demand.
+        </p>
+        <button class="btn btn-primary" id="btn-deepscan" disabled>
+          Scan my spaces
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+        </button>
+        <div class="untracked-list" id="deepscan-list"></div>
       </section>
 
       <div id="status-bar" class="status-bar hidden"></div>
