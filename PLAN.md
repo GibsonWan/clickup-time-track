@@ -89,18 +89,103 @@ Catches the gap Phase 1 can't: tasks you worked but **reassigned away** (no long
 - **Cost controls:** per-task checks run in a concurrency pool of 4, capped at 150/scan, with 429
   backoff and a coverage line ("checked N of M — narrow the range for full coverage"). Auto fast-path
   if the bulk list ever returns watchers. The date range is the throttle.
-- **Limits:** watcher is noisier than assignment (you're auto-added when @mentioned); the cap can
-  under-cover very large spaces — surfaced honestly in the stats line, not hidden.
+- **Limits:** the cap can under-cover very large spaces — surfaced in the stats line, not hidden.
+
+### ⚠ The watcher signal is BROKEN — do not trust this scan as shipped
+Gibson **authored the ClickUp task templates**, and his name was on them as a watcher. Every time a PM
+**copies a template**, that watcher is carried onto the new task. So he is a watcher on a large number
+of tasks he never touched, and the scan produces heavy false positives.
+
+Corroborated in the data: task activity reads *"Shawn Lam created this task by copying #86eqkrjkh"*,
+and Project Delivery contains the same template task set ("Create Staging", "Final Check +
+Desktop>Tablet>Mobile Responsive", "Go Live", "eCommerce Set Up") repeated across many client lists.
+
+**Deep scan v2 (designed, NOT yet built)** — replace the signal:
+1. Server-side filter on the **Team** custom field (workspace-level, so one query covers everything):
+   `custom_fields=[{"field_id":"41dbfbd6-a356-4962-9e3c-0cbf32e87b84","operator":"=","value":"<option id>"}]`.
+   Team 3 = `5267f726-21d1-4f7d-a498-59eb18a32fb7`. Offer a Team dropdown so teammates pick their own.
+2. Drop tasks assigned to the user and tasks they already logged time on.
+3. On the (now small) remainder, check **comments authored by the user**
+   (`GET /task/{id}/comment` → `user.id`) — templates don't copy comments, and Gibson comments on
+   handoff ("@X This task is done. Kindly Review."). That's the genuine fingerprint.
+4. Because step 1 shrinks the pool hard, the 150 cap / pool / coverage warnings can likely be dropped.
+
+Rejected signals: **watcher** (template inheritance, above); **Project Owner** custom field (defined
+but the team isn't filling it in yet); **creator** (the PM becomes creator when copying, so it only
+catches self-created tasks — possible weak secondary).
 
 ## Phase 3 — Polish — *later*
 - Persist selected workspace + last date range.
 - Fold the untracked count into the summary grid.
 - Loading/empty/error states for the new calls (basic states already added).
 
-## Rough effort
+---
+
+# Workspace context & constraints
+
+How MediaPlus uses ClickUp is **deliberate** and shaped by real constraints. Build the app around this
+workflow; don't treat these as anti-patterns to fix.
+
+1. **No ClickUp Business plan** → the native `billable` flag on time entries is **unavailable**. All
+   entries read `billable: false` because the feature is inaccessible, not unused. Do not propose
+   billable-based solutions.
+2. **HQ Timesheet space** (month lists: Daily Stand Up, Weekly Meeting, On Leave) = **admin /
+   non-project time only**, deliberately separate from project time. Only internal codes
+   **0000–0004** are in active reuse; everything older is prior-year history.
+3. **Per-client "Time Tracking" lists** (~9) exist because **web maintenance is retainer-based**:
+   hours draw down a fixed man-hour package the client bought, and work outside the package must be
+   tracked separately so it doesn't consume package hours. With no `billable` flag available, a
+   separate catch-all task is the only way to segregate this — it is the correct solution, not a
+   workaround.
+4. **Audit retention** — historical tasks, lists and time entries are kept for audit. **Never delete
+   anything**, and never build a delete path. The app is deliberately **read + append-only**: it reads
+   data and creates time entries; it never edits or removes existing ones. Old lists should be
+   *filtered out of views*, never cleaned up.
+
+### ⚠ Consequence for detection (open bug)
+Because maintenance hours live on the client's catch-all task, a **maintenance ticket with zero time
+logged is normal, not forgotten**. As shipped, the Untracked card and Deep Scan raise false positives
+across all maintenance work. Must be fixed — see open decisions.
+
+# ClickUp API capability findings (verified live)
+
+| Data | Readable via public API? | Notes |
+|---|---|---|
+| Time entries | ✅ | `GET /team/{id}/time_entries`, filter by assignee + date range |
+| Tasks by assignee | ✅ | `assignees[]`, `due_date_gt/lt`, `date_updated_gt/lt`, `space_ids[]` |
+| Watchers / creator | ✅ | Only on single `GET /task/{id}` — **not** in bulk list responses |
+| Comments (+ author id) | ✅ | `GET /task/{id}/comment` → `user.id`, per task |
+| Custom fields (Team, Project Owner) | ✅ | Workspace-level; **server-side filterable** via `custom_fields` param |
+| Status durations | ✅ | `time_in_status` |
+| **Task activity / assignee history** | ❌ | Only in the ClickUp web UI (private endpoints). Cannot read "was assigned to me, then reassigned" |
+| **Automations** | ❌ | No public endpoint. Only their *effects* are visible (e.g. ClickBot setting `Team`) |
+
+**Custom field IDs** — `Team` = `41dbfbd6-a356-4962-9e3c-0cbf32e87b84` (labels): Web Maint, Team 1,
+Team 2, **Team 3 = `5267f726-21d1-4f7d-a498-59eb18a32fb7`**, Team 4, Creative, T & T.
+`Project Owner` = `8ff45c3e-b2e0-447d-80dd-6d7ad4600b37` (labels; not yet populated by the team).
+
+Other IDs: workspace/team `3300027` (MediaPlus Digital), Gibson `43791299`.
+
+# Open decisions — resume here
+1. **Maintenance tickets** — exclude from detection entirely, or show as a separate labelled group
+   ("time may be on the client's package tracker")?
+2. **Deep scan v2** — build the Team-filter + own-comments design above to replace the broken watcher
+   signal?
+3. Exclude the HQ Timesheet space and per-client "Time Tracking" lists from detection (they are the
+   *destination* of time, so never "forgotten").
+
+# Also outstanding
+- **Live verification still pending** for the write path (Add time) and the deep scan — built to API
+  spec but not yet exercised against real ClickUp.
+- **Security:** client credentials (Shopify / Shopee / Lazada logins) are sitting in plaintext in task
+  descriptions, e.g. task `86exyez51`. A `Credentials` text custom field also exists at space level.
+  Recommend moving these to a password manager.
+
+# Rough effort
 | Phase | Scope | Effort |
 |-------|-------|--------|
 | 0 | Workspace-ready | ~half day ✅ |
 | 1 | Forgot-to-track detection | ~1 day ✅ |
 | 2 | Log time from app | ~1 day ✅ |
+| 2.5 | Deep scan (watcher — signal broken, needs v2) | ~1 day ⚠ |
 | 3 | Polish | ~half day |
