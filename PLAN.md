@@ -42,23 +42,23 @@ belong to other ClickUp workspaces.
 Turns the blunt "Missing X hrs" number into an actual list of untracked tasks.
 
 - New **Untracked Tasks** card (step 04). On fetch, after loading time entries, the app calls
-  `GET /team/{teamId}/task` filtered by `assignees[]=<me>` and `date_updated_gt/lt` = the selected
+  `GET /team/{teamId}/task` filtered by `assignees[]=<me>` and `due_date_gt/lt` = the selected
   range (`include_closed=true`, paginated).
-- **Untracked = assigned task, active in the range, with zero time entries** (joined on task id).
+- **Untracked = assigned task, DUE within the range, with zero time entries** (joined on task id).
 - Sorted due-dated first (earliest due), then by name. Each row shows project code, status, due
   date, and an "Open" link to the task in ClickUp.
-- A "Only show tasks with a due date" toggle cuts noise to the highest-signal items.
 
-### Why "updated within the range" (learned from live data)
-- Statuses are heavily customized per space (`hq`, `daily`, `weekly`, `on leave`, `deactive`, …),
-  so generic status names can't decide "should have been tracked."
-- The workspace has many recurring admin items (Daily Stand Up, Weekly Meeting, On Leave).
-- Scoping to tasks **touched in the period** captures "worked on but not logged" while excluding
-  untouched backlog and future items.
+### Why scope by due date (evolved from live data)
+- First cut used `date_updated_gt/lt` (tasks *touched* in the range), but that surfaced out-of-period
+  tasks — e.g. a task due in December that merely got a comment this week.
+- Switched to `due_date_gt/lt`: only tasks that **belonged to the selected window** (were due then)
+  appear. This is the literal "within the selected time" the user wanted, and it cuts the noise.
+- Statuses are heavily customized per space (`hq`, `daily`, `on leave`, …), so generic status names
+  can't decide "should have been tracked" — due date is the reliable period boundary.
 
-### Known v1 limitations / tuning fast-follows
-- Recurring/leave items with no time still appear as noise — could add a name/status exclude list.
-- Tasks with no due date can't be prioritized by urgency (only by name).
+### Known limitations / tuning fast-follows
+- **Tasks with no due date do not appear** (the tradeoff of due-date scoping). If a forgotten task
+  was never given a due date, it won't surface — revisit if this misses real cases.
 - A task worked-and-completed with time logged elsewhere is correctly treated as tracked.
 
 ## Phase 2 — Log time from the app (make it read-write) ✅ (implemented)
@@ -79,8 +79,8 @@ Catches the gap Phase 1 can't: tasks you worked but **reassigned away** (no long
 - **Why it's needed:** ClickUp's public API has no task activity/assignee-history endpoint (that lives
   only in the web UI). But being assigned auto-adds you as a **watcher**, and that persists after
   reassignment — so "am I a watcher/creator" is the API-readable proxy for "was this ever mine."
-- **How it works (on-demand, step 05 card):** fetch all tasks in your spaces updated in the range
-  (`GET /team/{teamId}/task?space_ids[]=…&date_updated_gt/lt`), drop ones you're assigned to or have
+- **How it works (on-demand, step 05 card):** fetch all tasks in your spaces **due within the range**
+  (`GET /team/{teamId}/task?space_ids[]=…&due_date_gt/lt`), drop ones you're assigned to or have
   logged time on, then per-task `GET /task/{id}` to check watcher/creator. Flagged tasks show with the
   current assignee ("Now: …") and the same inline **Add time**.
 - **Cost controls:** per-task checks run in a concurrency pool of 4, capped at 150/scan, with 429

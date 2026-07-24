@@ -30,7 +30,6 @@ const $btnExport   = document.getElementById('btn-export');
 const $statusBar   = document.getElementById('status-bar');
 const $untrackedList  = document.getElementById('untracked-list');
 const $untrackedCount = document.getElementById('untracked-count');
-const $untrackedDueOnly = document.getElementById('untracked-duedated');
 const $secDeepscan    = document.getElementById('section-deepscan');
 const $btnDeepscan    = document.getElementById('btn-deepscan');
 const $deepscanList   = document.getElementById('deepscan-list');
@@ -73,7 +72,6 @@ function bindEvents() {
   $btnExport.addEventListener('click', exportCSV);
 
   $wsSelect.addEventListener('change', () => { state.teamId = $wsSelect.value; });
-  $untrackedDueOnly.addEventListener('change', renderUntracked);
   $untrackedList.addEventListener('click', onUntrackedClick);
   $btnDeepscan.addEventListener('click', deepScan);
   $deepscanList.addEventListener('click', onUntrackedClick);
@@ -324,13 +322,14 @@ async function loadUntracked(startMs, endMs, entries) {
 
 async function fetchAssignedTasks(teamId, token, userId, startMs, endMs) {
   const tasks = [];
-  // Scope to tasks touched within the range so backlog/future items don't flood the list.
+  // Scope to tasks DUE within the selected range (not merely updated in it), so only
+  // tasks that belonged to this period appear — no out-of-period noise.
   for (let page = 0; page < 15; page++) {
     const qs =
       `page=${page}` +
       `&assignees%5B%5D=${encodeURIComponent(userId)}` +
-      `&date_updated_gt=${startMs}` +
-      `&date_updated_lt=${endMs}` +
+      `&due_date_gt=${startMs - 1}` +
+      `&due_date_lt=${endMs + 1}` +
       `&subtasks=true&include_closed=true`;
     const data  = await cuGet(`/team/${teamId}/task?${qs}`, token);
     const batch = data.tasks || [];
@@ -341,8 +340,7 @@ async function fetchAssignedTasks(teamId, token, userId, startMs, endMs) {
 }
 
 function renderUntracked() {
-  let list = state.untracked;
-  if ($untrackedDueOnly.checked) list = list.filter(t => t.due_date);
+  const list = state.untracked;
 
   $untrackedCount.textContent = list.length
     ? `${list.length} task${list.length !== 1 ? 's' : ''}`
@@ -350,7 +348,7 @@ function renderUntracked() {
 
   if (list.length === 0) {
     $untrackedList.innerHTML =
-      `<div class="untracked-empty">Every assigned task active in this range has time logged. 🎉</div>`;
+      `<div class="untracked-empty">Every task assigned to you and due in this range has time logged. 🎉</div>`;
     return;
   }
 
@@ -533,7 +531,7 @@ async function fetchSpaceTasks(teamId, token, spaceIds, startMs, endMs) {
   for (let page = 0; page < 30; page++) { // safety cap: 3000 tasks
     const qs =
       `page=${page}&${spaceParams}` +
-      `&date_updated_gt=${startMs}&date_updated_lt=${endMs}` +
+      `&due_date_gt=${startMs - 1}&due_date_lt=${endMs + 1}` +
       `&subtasks=true&include_closed=true`;
     const data  = await cuGet(`/team/${teamId}/task?${qs}`, token);
     const batch = data.tasks || [];
