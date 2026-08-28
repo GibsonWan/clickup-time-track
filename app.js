@@ -1075,9 +1075,18 @@ function exportCSV() {
     ['TOTAL Missing Time Track (hrs)', missing.toFixed(1), '', '', ''],
   ];
 
-  const csv = [headers, ...rows, ...totalsRows]
-    .map(row => row.map(cell => csvCell(String(cell))).join(','))
-    .join('\r\n');
+  // Only the data rows' first column is a project code. The header, the blank spacer and
+  // the totals rows keep plain formatting so their numbers stay numbers Excel can sum.
+  const encodeRow = (row, forceCodeCol) =>
+    row.map((cell, i) =>
+      (forceCodeCol && i === 0) ? csvCodeCell(cell) : csvCell(String(cell))
+    ).join(',');
+
+  const csv = [
+    encodeRow(headers, false),
+    ...rows.map(r => encodeRow(r, true)),
+    ...totalsRows.map(r => encodeRow(r, false)),
+  ].join('\r\n');
 
   const from = $dateFrom.value;
   const to   = $dateTo.value;
@@ -1100,6 +1109,20 @@ function csvCell(val) {
     return '"' + val.replace(/"/g, '""') + '"';
   }
   return val;
+}
+
+// Project codes are identifiers, not quantities, but Excel and Sheets coerce anything
+// all-digits into a number on open: 333660996315 renders as 3.3366E+11, and 0000 / 0001
+// lose their leading zeros and become 0 / 1. Wrapping the value as ="0001" forces the
+// cell to text in both, and the code survives intact.
+//
+// Only digit-only values get this treatment — a code like "0000-ADMIN" is already safe
+// as text, and the narrower rule keeps `=` out of cells that don't need it.
+function csvCodeCell(val) {
+  const s = String(val);
+  if (!/^\d+$/.test(s)) return csvCell(s);
+  const formula = '="' + s + '"';                        // the cell content Excel must see
+  return '"' + formula.replace(/"/g, '""') + '"';        // ...encoded as one CSV field
 }
 
 // ---------- API helpers ----------

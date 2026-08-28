@@ -246,6 +246,20 @@ date; an entry before 08:00 local sorted under the previous day. It now uses the
   isn't supported (pre-118 Firefox), since a visible token is the worse trade.
   **Don't change this input back to `type="password"`** — the prompt comes straight back.
 
+## Phase 2.11 — Project codes survive Excel ✅ (2026-08-28)
+The CSV was always correct; **Excel and Sheets mangled it on open** by coercing all-digit cells to
+numbers — `333660996315` rendered as `3.3366E+11`, and `0000` / `0001` lost their leading zeros and
+became `0` / `1`. Since these are the codes the timesheet is filed under, that corrupted the export.
+
+`csvCodeCell` now writes a digit-only code as `="0001"`, which both Excel and Google Sheets read as
+forced text. Applied **only to the Project Code column of data rows** — the header, spacer and totals
+rows stay plain so their figures remain numbers that can be summed, and `Time Spent` is untouched.
+Only digit-only values are wrapped: `0000-ADMIN` is already safe as text, and the narrow rule keeps a
+leading `=` out of cells that don't need one.
+
+Verified by parsing the generated CSV back with an RFC4180 reader: every code round-trips exactly,
+including leading zeros and 12-digit codes, while the totals stay numeric.
+
 ## Phase 3 — Polish — *later*
 - Persist selected workspace + last date range.
 - Fold the untracked count into the summary grid.
