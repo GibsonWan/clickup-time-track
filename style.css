@@ -742,6 +742,15 @@ body::before {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.export-row .row-count { margin-right: auto; }
+
+#btn-copy.is-copied {
+  color: var(--success);
+  border-color: var(--success);
+  background: var(--success-light);
 }
 .row-count {
   color: var(--text-muted);

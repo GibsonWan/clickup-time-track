@@ -127,6 +127,7 @@ const $tableBody   = document.getElementById('table-body');
 const $summary     = document.getElementById('summary');
 const $rowCount    = document.getElementById('row-count');
 const $btnExport   = document.getElementById('btn-export');
+const $btnCopy     = document.getElementById('btn-copy');
 const $statusBar   = document.getElementById('status-bar');
 const $untrackedList  = document.getElementById('untracked-list');
 const $untrackedCount = document.getElementById('untracked-count');
@@ -196,6 +197,7 @@ function bindEvents() {
   $dateTo.addEventListener('change', validateDates);
 
   $btnExport.addEventListener('click', exportCSV);
+  $btnCopy.addEventListener('click', copyTable);
 
   $wsSelect.addEventListener('change', () => { state.teamId = $wsSelect.value; });
   $untrackedList.addEventListener('click', onUntrackedClick);
@@ -417,6 +419,7 @@ async function handleFetch() {
     renderTable(entries);
     $secExport.classList.remove('disabled');
     $btnExport.disabled = entries.length === 0;
+    $btnCopy.disabled   = entries.length === 0;
 
     // Phase 1: find tasks assigned to me, active in this range, with no time logged.
     await loadUntracked(startMs, endMs, entries);
@@ -1049,6 +1052,75 @@ function onTableClick(ev) {
   }
 }
 
+// ---------- Copy to clipboard ----------
+// Spreadsheets read tab-separated text on paste, one row per line — so this drops
+// straight into Sheets as cells without going through a file at all. Codes carry the
+// same apostrophe as the CSV, which is what stops 0000 pasting as 0.
+function tableAsTSV() {
+  const headers = ['Project Code', 'Project Info', 'Task / Location', 'Date', 'Time Spent'];
+  const rows = state.entries.map(e => [
+    codeForSheet(e.projectCode),
+    e.projectInfo,
+    // A tab or newline inside a value would break the row apart — collapse them.
+    String(e.taskName).replace(/[\t\r\n]+/g, ' '),
+    e.date,
+    e.hours.toFixed(2),
+  ]);
+  return [headers, ...rows].map(r => r.join('\t')).join('\n');
+}
+
+async function copyTable() {
+  if (state.entries.length === 0) return;
+  const text = tableAsTSV();
+
+  try {
+    await writeClipboard(text);
+    const n = state.entries.length;
+    showStatus(`Copied ${n} row${n !== 1 ? 's' : ''} — paste straight into your sheet.`, 'success');
+    setTimeout(hideStatus, 3500);
+    flashCopied();
+  } catch (err) {
+    showStatus('Couldn\'t copy to the clipboard. Use Export CSV instead.', 'error');
+    setTimeout(hideStatus, 4000);
+  }
+}
+
+// navigator.clipboard needs a secure context, and even then it rejects if the document
+// isn't focused or a permissions policy blocks it. So try it, and fall through to the
+// textarea route on *failure*, not just when the API is missing.
+async function writeClipboard(text) {
+  if (navigator.clipboard && window.isSecureContext) {
+    try { return await navigator.clipboard.writeText(text); }
+    catch (_) { /* fall through */ }
+  }
+
+  const ta = document.createElement('textarea');
+  ta.value = text;
+  ta.setAttribute('readonly', '');
+  ta.style.position = 'fixed';
+  ta.style.top      = '0';
+  ta.style.opacity  = '0';
+  document.body.appendChild(ta);
+  ta.focus();
+  ta.select();
+  ta.setSelectionRange(0, ta.value.length);   // iOS Safari needs the explicit range
+  let ok = false;
+  try { ok = document.execCommand('copy'); } catch (_) { ok = false; }
+  document.body.removeChild(ta);
+  if (!ok) throw new Error('copy failed');
+}
+
+function flashCopied() {
+  const original = $btnCopy.innerHTML;
+  $btnCopy.classList.add('is-copied');
+  $btnCopy.innerHTML =
+    `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg> Copied`;
+  setTimeout(() => {
+    $btnCopy.innerHTML = original;
+    $btnCopy.classList.remove('is-copied');
+  }, 1600);
+}
+
 // ---------- Export ----------
 function exportCSV() {
   if (state.entries.length === 0) return;
@@ -1119,10 +1191,13 @@ function csvCell(val) {
 //
 // Only digit-only values get it: "0000-ADMIN" is already safe as text, and the narrow
 // rule avoids marking cells that don't need it.
-function csvCodeCell(val) {
+function codeForSheet(val) {
   const s = String(val);
-  if (!/^\d+$/.test(s)) return csvCell(s);
-  return csvCell("'" + s);
+  return /^\d+$/.test(s) ? "'" + s : s;
+}
+
+function csvCodeCell(val) {
+  return csvCell(codeForSheet(val));
 }
 
 // ---------- API helpers ----------

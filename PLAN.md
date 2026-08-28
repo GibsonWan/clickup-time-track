@@ -267,6 +267,20 @@ treats a leading `'` in an imported field as content rather than a text marker. 
 on import. This is the right default while the team files timesheets in Sheets — revisit if anyone
 opens the export in Excel.
 
+### Copy table
+The real workflow turned out to be copying rows off the on-screen table, not opening the CSV at all —
+so there's a **Copy table** button beside Export CSV. It writes the table to the clipboard as TSV
+(tab-separated, one row per line), which is the format spreadsheets read on paste, with the same
+apostrophe-prefixed codes. Straight into Sheets as cells, no file round-trip.
+
+- `codeForSheet()` is shared with the CSV path so the two can't drift.
+- Tabs/newlines inside a task name are collapsed to spaces — either would split the row.
+- `writeClipboard()` tries `navigator.clipboard` and falls back to a hidden textarea + `execCommand`
+  **on failure**, not merely when the API is absent: it also rejects when the document isn't focused
+  or a permissions policy blocks it.
+- Both paths need a real user gesture, so this can't be exercised by scripted clicks — verified with an
+  actual click, which reported the modern API succeeding with a byte count matching the generated TSV.
+
 ## Phase 3 — Polish — *later*
 - Persist selected workspace + last date range.
 - Fold the untracked count into the summary grid.
