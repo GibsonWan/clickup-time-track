@@ -76,20 +76,15 @@ The app was GET-only; it can now write, closing the loop where you find the gap.
 - Start/stop a live timer; edit or delete existing entries.
 - The write path hasn't been exercised against live ClickUp yet — verify one entry before relying on it.
 
-## Phase 2.5 — Deep scan for handed-off tasks ✅ (implemented)
+## Phase 2.5 — Deep scan for handed-off tasks ⚠ (shipped, signal broken — being replaced)
 Catches the gap Phase 1 can't: tasks you worked but **reassigned away** (no longer your assignee).
 
-- **Why it's needed:** ClickUp's public API has no task activity/assignee-history endpoint (that lives
-  only in the web UI). But being assigned auto-adds you as a **watcher**, and that persists after
-  reassignment — so "am I a watcher/creator" is the API-readable proxy for "was this ever mine."
-- **How it works (on-demand, step 05 card):** fetch all tasks in your spaces **due within the range**
-  (`GET /team/{teamId}/task?space_ids[]=…&due_date_gt/lt`), drop ones you're assigned to or have
-  logged time on, then per-task `GET /task/{id}` to check watcher/creator. Flagged tasks show with the
-  current assignee ("Now: …") and the same inline **Add time**.
-- **Cost controls:** per-task checks run in a concurrency pool of 4, capped at 150/scan, with 429
-  backoff and a coverage line ("checked N of M — narrow the range for full coverage"). Auto fast-path
-  if the bulk list ever returns watchers. The date range is the throttle.
-- **Limits:** the cap can under-cover very large spaces — surfaced in the stats line, not hidden.
+- **Why the gap exists:** ClickUp's public API has no task activity/assignee-history endpoint (that
+  lives only in the web UI). `assignees` is current-state only — it forgets. So there is no API-native
+  way to recover "this was once mine."
+- **As shipped:** fetch all tasks in your spaces due within the range, drop ones you're assigned to or
+  have logged time on, then per-task `GET /task/{id}` to check watcher/creator. Concurrency pool of 4,
+  capped at 150/scan, 429 backoff, coverage line.
 
 ### ⚠ The watcher signal is BROKEN — do not trust this scan as shipped
 Gibson **authored the ClickUp task templates**, and his name was on them as a watcher. Every time a PM
@@ -100,19 +95,55 @@ Corroborated in the data: task activity reads *"Shawn Lam created this task by c
 and Project Delivery contains the same template task set ("Create Staging", "Final Check +
 Desktop>Tablet>Mobile Responsive", "Go Live", "eCommerce Set Up") repeated across many client lists.
 
-**Deep scan v2 (designed, NOT yet built)** — replace the signal:
-1. Server-side filter on the **Team** custom field (workspace-level, so one query covers everything):
-   `custom_fields=[{"field_id":"41dbfbd6-a356-4962-9e3c-0cbf32e87b84","operator":"=","value":"<option id>"}]`.
-   Team 3 = `5267f726-21d1-4f7d-a498-59eb18a32fb7`. Offer a Team dropdown so teammates pick their own.
-2. Drop tasks assigned to the user and tasks they already logged time on.
-3. On the (now small) remainder, check **comments authored by the user**
-   (`GET /task/{id}/comment` → `user.id`) — templates don't copy comments, and Gibson comments on
-   handoff ("@X This task is done. Kindly Review."). That's the genuine fingerprint.
-4. Because step 1 shrinks the pool hard, the 150 cap / pool / coverage warnings can likely be dropped.
+## Phase 2.6 — Replace the deep scan with the `Developer(s)` field — *next*
 
-Rejected signals: **watcher** (template inheritance, above); **Project Owner** custom field (defined
-but the team isn't filling it in yet); **creator** (the PM becomes creator when copying, so it only
-catches self-created tasks — possible weak secondary).
+Gibson repurposed the old `Project Owner` custom field into **`Developer(s)`** (same field id, renamed,
+given a 12-person developer roster) and is rolling it out to the team. Every developer who works a task
+adds themselves; entries are **never removed**, so the field accumulates everyone who ever touched it.
+
+This is the right shape for the problem: it is a **human-maintained substitute for the missing
+assignee-history API**. Rather than inferring past involvement from a noisy proxy, the team records it
+deliberately.
+
+**Field:** `Developer(s)` = `8ff45c3e-b2e0-447d-80dd-6d7ad4600b37`, type `labels`.
+Options: Gibson `acf04f01-775e-4ef4-bcee-1f7c44bcda60`, Victor `7557bc08-5b2b-4490-b4df-8c0a9781e3b1`,
+Jonathon `53b6a888-68ac-405b-a11c-33388673da4b`, Zhen Yang `7232bc01-100a-49a1-995a-e26098e9b579`,
+Marlvin `c3fb6c0c-bf8c-4902-8445-29bc0e1e9d3b`, Amie `5bab7a33-b2fe-42cf-9625-fd6e84dc05b5`,
+Wen `e133335f-fe81-4ade-8761-b2d3b815c6b7`, Shafeeq `1f75060b-2aaa-4f49-ab41-60464c68f68c`,
+Travis `fa24511a-9507-498b-9fd1-4894e41c06e0`, Tasha `d040312d-6c24-4255-97b9-7ef9abc124af`,
+Tino `41f60799-bf26-4b57-8391-94920e5a75bb`, Aiman `c9bd40c7-793d-4c0f-b18c-a835da8420bd`.
+
+Verified populated in live data (task `86eyprna3` → `Developer(s): [Gibson]`, `Team: [Team 3]`).
+
+**Design:**
+1. Server-side filter on the field, workspace-wide in one query — no space enumeration:
+   `custom_fields=[{"field_id":"8ff45c3e-b2e0-447d-80dd-6d7ad4600b37","operator":"ANY","value":["<option id>"]}]`
+2. Drop tasks the user is assigned to (Phase 1 already covers those) and tasks they logged time on.
+3. What remains = worked-but-untracked. No per-task fetch, so the **150 cap, concurrency pool, 429
+   backoff and coverage warning can all be deleted.**
+
+**Keep assignee detection as the baseline — do NOT make this a straight swap.**
+Watcher was noisy but *automatic*; `Developer(s)` is accurate but *depends on people filling it in*.
+That flips the failure mode from false positives to **false negatives**, which are worse here: a
+developer having a scattered week forgets to tag themselves on exactly the week they also forget to log
+time — the signal goes quiet when it's needed most. Phase 1 (assignee) stays the automatic floor;
+`Developer(s)` is an **additive** second source. Union the two, never replace.
+
+**Design constraints to honour:**
+- **No timestamp.** The field says *who*, not *when*. The app's question is "in this range, did I work
+  something unlogged?" — so the existing `due_date` / `date_updated` range-bounding from Phase 1 still
+  applies on top of the field filter.
+- **Cutover date.** Tasks before rollout have an empty field, so a scan over an earlier range returns
+  nothing and *looks clean* — a silent wrong answer. Hardcode the rollout date; for ranges before it,
+  fall back to assignee-only and say so in the UI ("Developer(s) tracking starts <date>").
+- **Label → user id map.** Options are first names (`Gibson`), the API returns ids (`43791299`). Needs
+  a small map in the app; adding a developer means touching it. Watch for first-name collisions.
+- **Not enforced.** Append-only is a team convention, not a ClickUp constraint — the field can be
+  edited or cleared. Accept this; don't build around it.
+
+Rejected signals: **watcher** (template inheritance, above); **creator** (the PM becomes creator when
+copying, so it only catches self-created tasks); **Team custom field** (correct but too coarse — it
+identifies the team, not the person).
 
 ## Phase 3 — Polish — *later*
 - Persist selected workspace + last date range.
@@ -155,22 +186,24 @@ across all maintenance work. Must be fixed — see open decisions.
 | Tasks by assignee | ✅ | `assignees[]`, `due_date_gt/lt`, `date_updated_gt/lt`, `space_ids[]` |
 | Watchers / creator | ✅ | Only on single `GET /task/{id}` — **not** in bulk list responses |
 | Comments (+ author id) | ✅ | `GET /task/{id}/comment` → `user.id`, per task |
-| Custom fields (Team, Project Owner) | ✅ | Workspace-level; **server-side filterable** via `custom_fields` param |
+| Custom fields (Team, Developer(s)) | ✅ | Workspace-level; **server-side filterable** via `custom_fields` param |
 | Status durations | ✅ | `time_in_status` |
 | **Task activity / assignee history** | ❌ | Only in the ClickUp web UI (private endpoints). Cannot read "was assigned to me, then reassigned" |
 | **Automations** | ❌ | No public endpoint. Only their *effects* are visible (e.g. ClickBot setting `Team`) |
 
 **Custom field IDs** — `Team` = `41dbfbd6-a356-4962-9e3c-0cbf32e87b84` (labels): Web Maint, Team 1,
 Team 2, **Team 3 = `5267f726-21d1-4f7d-a498-59eb18a32fb7`**, Team 4, Creative, T & T.
-`Project Owner` = `8ff45c3e-b2e0-447d-80dd-6d7ad4600b37` (labels; not yet populated by the team).
+`Developer(s)` = `8ff45c3e-b2e0-447d-80dd-6d7ad4600b37` (labels) — the former `Project Owner` field,
+renamed and given a developer roster; being rolled out to the team. Full option ids in Phase 2.6.
 
 Other IDs: workspace/team `3300027` (MediaPlus Digital), Gibson `43791299`.
 
 # Open decisions — resume here
 1. **Maintenance tickets** — exclude from detection entirely, or show as a separate labelled group
    ("time may be on the client's package tracker")?
-2. **Deep scan v2** — build the Team-filter + own-comments design above to replace the broken watcher
-   signal?
+2. ~~**Deep scan v2** — Team-filter + own-comments?~~ **DECIDED (2026-08-28):** superseded by the
+   `Developer(s)` field — see Phase 2.6. Open sub-question: what is the **cutover date** (rollout is
+   "next month" as of 2026-08-28, so likely 2026-09-01)?
 3. Exclude the HQ Timesheet space and per-client "Time Tracking" lists from detection (they are the
    *destination* of time, so never "forgotten").
 
@@ -187,5 +220,6 @@ Other IDs: workspace/team `3300027` (MediaPlus Digital), Gibson `43791299`.
 | 0 | Workspace-ready | ~half day ✅ |
 | 1 | Forgot-to-track detection | ~1 day ✅ |
 | 2 | Log time from app | ~1 day ✅ |
-| 2.5 | Deep scan (watcher — signal broken, needs v2) | ~1 day ⚠ |
+| 2.5 | Deep scan (watcher — signal broken, superseded) | ~1 day ⚠ |
+| 2.6 | Replace deep scan with `Developer(s)` filter | ~half day |
 | 3 | Polish | ~half day |
