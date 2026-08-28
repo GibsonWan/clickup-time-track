@@ -86,10 +86,14 @@ const DEV_OPTIONS_FALLBACK = [
   { id: 'c9bd40c7-793d-4c0f-b18c-a835da8420bd', label: 'Aiman' },
 ];
 
-// The team starts filling the field in September 2026. Before this date it is mostly
-// empty, so a scan would come back clean and *look* fine — a silent wrong answer.
-// Ranges starting earlier fall back to assigned-tasks-only, and say so in the UI.
-const DEV_FIELD_START = '2026-09-01';
+// Earliest date the Developer(s) field can be trusted to be filled in. Before it the
+// field is mostly empty, so a scan would come back clean and *look* fine — a silent
+// wrong answer — hence the warning on earlier ranges.
+//
+// Gibson was already tagging tasks through August 2026 ahead of the team-wide rollout
+// in September, so August is genuine data and shouldn't warn. Move this back further
+// if it turns out the field was in use earlier than that.
+const DEV_FIELD_START = '2026-08-01';
 
 // ---------- State ----------
 let state = {

@@ -155,7 +155,8 @@ identifies the team, not the person).
 - The roster is fetched from `GET /team/{teamId}/field` at connect time so a developer added in ClickUp
   shows up without a code change; if that endpoint isn't available it falls back to the roster hardcoded
   in `app.js` (`DEV_OPTIONS_FALLBACK`, verified live 2026-08-28).
-- Cutover is `DEV_FIELD_START = '2026-09-01'` in `app.js`. Ranges starting earlier still run, but the
+- Cutover is `DEV_FIELD_START = '2026-08-01'` in `app.js` — the team-wide rollout is September 2026, but
+  Gibson was already tagging through August, so August is real data and shouldn't warn. Ranges starting earlier still run, but the
   card shows a warning that the field was not yet in use — so an empty result never reads as "all clear".
 - **Still not verified against live ClickUp**: the `custom_fields` filter parameter is built to API spec
   and unit-tested locally, but no real scan has been run. Verify with one September range before relying
@@ -290,8 +291,8 @@ Other IDs: workspace/team `3300027` (MediaPlus Digital), Gibson `43791299`.
 1. **Maintenance tickets** — exclude from detection entirely, or show as a separate labelled group
    ("time may be on the client's package tracker")?
 2. ~~**Deep scan v2** — Team-filter + own-comments?~~ **DONE (2026-08-28):** superseded by the
-   `Developer(s)` field and implemented — see Phase 2.6. Cutover set to `2026-09-01`; change
-   `DEV_FIELD_START` in `app.js` if the team starts on a different date.
+   `Developer(s)` field and implemented — see Phase 2.6. Cutover set to `2026-08-01` (team-wide rollout
+   is September, but August already has real tagging); change `DEV_FIELD_START` in `app.js` to adjust.
 3. Exclude the HQ Timesheet space and per-client "Time Tracking" lists from detection (they are the
    *destination* of time, so never "forgotten").
 
