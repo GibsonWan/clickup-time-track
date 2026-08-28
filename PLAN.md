@@ -171,6 +171,20 @@ Deliberately *not* done: OAuth. It would remove token handling entirely, but the
 needs a client secret, which a static page can't hold — so it needs a Vercel serverless function. Worth
 revisiting if the team grows; `localStorage` gives the same day-to-day experience for two lines.
 
+### Rate limiting
+ClickUp rate-limits **per token** (~100 req/min below Business Plus), so each developer having their own
+personal token means they never contend with each other — an argument for personal tokens over a shared
+one. Personal tokens are free, per-user, and unlimited in number.
+
+`fetchAllTimeEntries` used to fetch task details with an unbounded `Promise.all` — a month with 80
+entries missing a list name fired 80 simultaneous requests, and the `catch` swallowed the 429s, so the
+only visible symptom was rows silently losing their project code. It now goes through `mapPooled`
+(concurrency 4) and `cuGetWithRetry` (429-only backoff; other errors fail fast), and reports how many
+lookups failed instead of letting the CSV come out quietly wrong.
+
+**Any new per-item fetch must use `mapPooled`.** Note `mapPooled` pre-fills its results array — an
+unassigned slot would be a *hole*, and `filter`/`forEach` skip holes, which silently hides failures.
+
 ## Phase 3 — Polish — *later*
 - Persist selected workspace + last date range.
 - Fold the untracked count into the summary grid.

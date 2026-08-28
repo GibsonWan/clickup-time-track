@@ -279,6 +279,46 @@ function handleDeveloperChange() {
   updateDevScanAvailability();
 }
 
+// ---------- Request throttling ----------
+// ClickUp rate-limits per token (~100 requests/minute below Business Plus), so any
+// per-item fetch has to be bounded. Firing a whole month of lookups at once trips the
+// limit and the failures are invisible — rows just quietly lose their project code.
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const REQUEST_POOL = 4;
+
+// Runs `fn` over items at most REQUEST_POOL at a time. Failures resolve to undefined
+// so one bad item can't reject the batch.
+async function mapPooled(items, fn, poolSize = REQUEST_POOL, onProgress) {
+  // Pre-filled, not `new Array(n)` — an unassigned slot is a *hole*, and holes are
+  // skipped by filter/forEach, which would silently hide failures from the caller.
+  const results = new Array(items.length).fill(null);
+  let idx = 0, done = 0;
+
+  async function worker() {
+    while (idx < items.length) {
+      const i = idx++;
+      try { results[i] = await fn(items[i], i); } catch (_) { results[i] = null; }
+      done++;
+      if (onProgress) onProgress(done, items.length);
+    }
+  }
+
+  await Promise.all(Array.from({ length: Math.min(poolSize, items.length) }, worker));
+  return results;
+}
+
+// Retries only on 429, backing off so a burst doesn't cascade into more 429s.
+async function cuGetWithRetry(path, token, tries = 3) {
+  for (let i = 0; i < tries; i++) {
+    try {
+      return await cuGet(path, token);
+    } catch (e) {
+      if (/\b429\b/.test(e.message) && i < tries - 1) { await sleep(2500 * (i + 1)); continue; }
+      throw e;
+    }
+  }
+}
+
 // ---------- Fetch ----------
 async function handleFetch() {
   if (!state.token) return;
@@ -328,12 +368,6 @@ async function fetchAllTimeEntries(teamId, token, startMs, endMs, userId) {
   const data = await cuGet(`/team/${teamId}/time_entries?${params}`, token);
   const raw  = data.data || [];
 
-  // Log first entry so we can inspect the real API shape in DevTools console
-  if (raw.length > 0) {
-    console.log('[CU Export] first entry keys:', Object.keys(raw[0]));
-    console.log('[CU Export] first entry:', JSON.stringify(raw[0], null, 2));
-  }
-
   // Find entries where task_location gives no list name — fetch task details for those
   const missingIds = [...new Set(
     raw
@@ -347,14 +381,21 @@ async function fetchAllTimeEntries(teamId, token, startMs, endMs, userId) {
   const taskCache = {};
   if (missingIds.length > 0) {
     showStatus(`Fetching task details (${missingIds.length} tasks)...`, 'loading');
-    await Promise.all(
-      missingIds.map(async id => {
-        try {
-          const t = await cuGet(`/task/${id}`, token);
-          taskCache[id] = t;
-        } catch (_) {}
-      })
+    const fetched = await mapPooled(
+      missingIds,
+      id => cuGetWithRetry(`/task/${id}`, token),
+      REQUEST_POOL,
+      (done, total) => showStatus(`Fetching task details (${done}/${total})...`, 'loading')
     );
+    fetched.forEach((t, i) => { if (t) taskCache[missingIds[i]] = t; });
+
+    // Lookups that still failed lose their project code in the export, so say so
+    // rather than letting the CSV quietly come out wrong.
+    const failed = fetched.filter(t => !t).length;
+    if (failed > 0) {
+      showStatus(`${failed} of ${missingIds.length} task lookups failed — those rows may show "N/A" for project. Try a narrower date range.`, 'error');
+      setTimeout(hideStatus, 6000);
+    }
   }
 
   const entries = raw.map(e => parseEntry(e, taskCache));
