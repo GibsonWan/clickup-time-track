@@ -1056,17 +1056,19 @@ function onTableClick(ev) {
 // Spreadsheets read tab-separated text on paste, one row per line — so this drops
 // straight into Sheets as cells without going through a file at all. Codes carry the
 // same apostrophe as the CSV, which is what stops 0000 pasting as 0.
+//
+// Data rows only — no header, no totals. This is pasted into an existing timesheet that
+// already has its own headers and totals, so anything extra has to be deleted by hand.
+// (The CSV export keeps both; it's a standalone file.)
 function tableAsTSV() {
-  const headers = ['Project Code', 'Project Info', 'Task / Location', 'Date', 'Time Spent'];
-  const rows = state.entries.map(e => [
+  return state.entries.map(e => [
     codeForSheet(e.projectCode),
     e.projectInfo,
     // A tab or newline inside a value would break the row apart — collapse them.
     String(e.taskName).replace(/[\t\r\n]+/g, ' '),
     e.date,
     e.hours.toFixed(2),
-  ]);
-  return [headers, ...rows].map(r => r.join('\t')).join('\n');
+  ].join('\t')).join('\n');
 }
 
 async function copyTable() {

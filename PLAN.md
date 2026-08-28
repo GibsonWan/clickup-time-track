@@ -273,6 +273,9 @@ so there's a **Copy table** button beside Export CSV. It writes the table to the
 (tab-separated, one row per line), which is the format spreadsheets read on paste, with the same
 apostrophe-prefixed codes. Straight into Sheets as cells, no file round-trip.
 
+- **Data rows only — no header row, no totals.** It's pasted into an existing timesheet that already
+  has its own headers and totals, so anything extra would have to be deleted by hand every time. The
+  **CSV export keeps both**, since that's a standalone file.
 - `codeForSheet()` is shared with the CSV path so the two can't drift.
 - Tabs/newlines inside a task name are collapsed to spaces — either would split the row.
 - `writeClipboard()` tries `navigator.clipboard` and falls back to a hidden textarea + `execCommand`
