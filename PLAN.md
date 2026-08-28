@@ -209,6 +209,17 @@ not the workspace. The row count line reports how many entries still lack a code
 **Hrs** and **Min** inputs — plenty of tasks are just 30 minutes — and either alone is valid.
 `addTimeEntry` takes total minutes and posts `duration` in ms.
 
+## Phase 2.8 — Layout, type scale, dismissable tasks ✅ (implemented 2026-08-28)
+- Container `max-width` 1140px → **1280px**.
+- **Type scale**: body 13.5px → **16px**, with every other declaration scaled by the same 1.185 factor.
+  Body-level text is capped at 16px; headings keep their hierarchy above it (card titles 18px, stat
+  numbers 23.5px, hero 44px untouched). No leaf text renders below 12px except the decorative diamond.
+- **Dismiss**: every row in Untracked and Worked-but-Not-Assigned has an × that hides the task for good —
+  some flagged tasks are stale, cancelled, or tracked on the client's retainer task instead. Dismissals
+  persist in `localStorage` under `cu_dismissed` and are filtered out of both lists on every rebuild.
+  A `N tasks dismissed · Restore all` line under each list keeps it from being a one-way door; restoring
+  re-runs the fetch, since a dismissed row is gone from state. Local-only, like code overrides.
+
 ## Phase 3 — Polish — *later*
 - Persist selected workspace + last date range.
 - Fold the untracked count into the summary grid.
@@ -287,4 +298,5 @@ Other IDs: workspace/team `3300027` (MediaPlus Digital), Gibson `43791299`.
 | 2.5 | Deep scan (watcher — signal broken, superseded) | ~1 day ⚠ |
 | 2.6 | Replace deep scan with `Developer(s)` filter | ~half day ✅ |
 | 2.7 | Project codes from task titles + hrs/min entry | ~half day ✅ |
+| 2.8 | 1280px layout, 16px type scale, dismiss tasks | ~half day ✅ |
 | 3 | Polish | ~half day |

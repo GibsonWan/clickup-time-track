@@ -41,7 +41,7 @@ body {
   background: var(--bg);
   color: var(--text);
   font-family: 'Sora', sans-serif;
-  font-size: 13.5px;
+  font-size: 16px;
   line-height: 1.65;
   min-height: 100vh;
   -webkit-font-smoothing: antialiased;
@@ -60,7 +60,7 @@ body::before {
 .app {
   position: relative;
   z-index: 1;
-  max-width: 1140px;
+  max-width: 1280px;
   margin: 0 auto;
   padding: 60px 20px 80px;
 }
@@ -98,7 +98,7 @@ body::before {
 .subtitle {
   color: var(--text-muted);
   margin-top: 10px;
-  font-size: 13px;
+  font-size: 15.5px;
   font-weight: 300;
   letter-spacing: .1px;
 }
@@ -117,7 +117,7 @@ body::before {
   background: linear-gradient(to right, transparent, var(--border-strong), transparent);
 }
 .header-rule .diamond {
-  font-size: 7px;
+  font-size: 8.5px;
   color: var(--accent);
   flex: none;
   line-height: 1;
@@ -152,7 +152,7 @@ body::before {
 }
 
 .step-badge {
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 600;
   letter-spacing: 1.2px;
   color: var(--accent);
@@ -164,7 +164,7 @@ body::before {
 }
 
 .card-title {
-  font-size: 15px;
+  font-size: 18px;
   font-weight: 600;
   color: var(--text);
   letter-spacing: -.15px;
@@ -172,7 +172,7 @@ body::before {
 
 .card-desc {
   color: var(--text-muted);
-  font-size: 12.5px;
+  font-size: 15px;
   line-height: 1.7;
   margin-bottom: 18px;
 }
@@ -183,7 +183,7 @@ body::before {
   border: 1px solid var(--border);
   padding: 1px 6px;
   border-radius: 4px;
-  font-size: 11.5px;
+  font-size: 13.5px;
   letter-spacing: .1px;
 }
 
@@ -207,7 +207,7 @@ body::before {
   border-radius: var(--radius-sm);
   color: var(--text);
   padding: 10px 13px;
-  font-size: 13px;
+  font-size: 15.5px;
   font-family: 'Sora', sans-serif;
   width: 100%;
   transition: border-color .18s var(--ease), box-shadow .18s var(--ease), background .18s var(--ease);
@@ -220,7 +220,7 @@ body::before {
   box-shadow: 0 0 0 3px rgba(184,114,46,.11);
 }
 .input[type="date"] { cursor: pointer; color-scheme: light; }
-.input::placeholder { color: var(--text-muted); font-size: 12px; font-weight: 300; }
+.input::placeholder { color: var(--text-muted); font-size: 14px; font-weight: 300; }
 
 /* ── Buttons ── */
 .btn {
@@ -231,7 +231,7 @@ body::before {
   border-radius: var(--radius-sm);
   cursor: pointer;
   font-family: 'Sora', sans-serif;
-  font-size: 13px;
+  font-size: 15.5px;
   font-weight: 500;
   padding: 10px 18px;
   transition: all .18s var(--ease);
@@ -269,7 +269,7 @@ body::before {
   border: 1.5px solid var(--border);
   color: var(--text-secondary);
   padding: 7px 12px;
-  font-size: 11.5px;
+  font-size: 13.5px;
   font-weight: 500;
   border-radius: 20px;
 }
@@ -295,7 +295,7 @@ body::before {
 }
 .date-sep {
   color: var(--text-muted);
-  font-size: 20px;
+  font-size: 23.5px;
   font-weight: 300;
   padding-bottom: 8px;
   line-height: 1;
@@ -307,7 +307,7 @@ body::before {
   gap: 5px;
 }
 .field-group label {
-  font-size: 10.5px;
+  font-size: 12.5px;
   color: var(--text-muted);
   font-weight: 500;
   letter-spacing: .7px;
@@ -332,7 +332,7 @@ body::before {
   display: flex;
   align-items: center;
   gap: 12px;
-  font-size: 13px;
+  font-size: 15.5px;
   animation: fadeIn .3s ease;
 }
 .user-info .avatar {
@@ -344,15 +344,15 @@ body::before {
   align-items: center;
   justify-content: center;
   font-weight: 700;
-  font-size: 13px;
+  font-size: 15.5px;
   color: #fff;
   flex-shrink: 0;
   overflow: hidden;
   box-shadow: 0 2px 8px rgba(184,114,46,.22);
 }
 .user-info .avatar img { width: 100%; height: 100%; object-fit: cover; }
-.user-info .user-name { font-weight: 600; color: var(--text); font-size: 13px; }
-.user-info .user-email { color: var(--text-muted); font-size: 11.5px; margin-top: 1px; }
+.user-info .user-name { font-weight: 600; color: var(--text); font-size: 15.5px; }
+.user-info .user-email { color: var(--text-muted); font-size: 13.5px; margin-top: 1px; }
 
 /* ── Workspace picker ── */
 .workspace-wrap {
@@ -363,7 +363,7 @@ body::before {
   animation: fadeIn .3s ease;
 }
 .workspace-wrap label {
-  font-size: 10.5px;
+  font-size: 12.5px;
   color: var(--text-muted);
   font-weight: 500;
   letter-spacing: .7px;
@@ -376,7 +376,7 @@ body::before {
 }
 .field-hint {
   margin: 2px 0 0;
-  font-size: 11.5px;
+  font-size: 13.5px;
   color: var(--text-muted);
   line-height: 1.45;
 }
@@ -385,7 +385,7 @@ body::before {
 .btn-ghost {
   margin-top: 14px;
   padding: 5px 10px;
-  font-size: 11.5px;
+  font-size: 13.5px;
   background: transparent;
   color: var(--text-muted);
   border: 1px solid var(--border);
@@ -398,7 +398,7 @@ body::before {
 /* ── Untracked tasks ── */
 .untracked-count {
   margin-left: auto;
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 600;
   color: var(--accent);
   background: var(--accent-light);
@@ -411,7 +411,7 @@ body::before {
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 12px;
+  font-size: 14px;
   color: var(--text-secondary);
   cursor: pointer;
   margin-bottom: 16px;
@@ -441,7 +441,7 @@ body::before {
 .untracked-item.is-due { border-left-color: var(--error); }
 .untracked-item .u-body { flex: 1; min-width: 0; }
 .untracked-item .u-name {
-  font-size: 12.5px;
+  font-size: 15px;
   font-weight: 500;
   color: var(--text);
   line-height: 1.4;
@@ -455,7 +455,7 @@ body::before {
   margin-top: 6px;
 }
 .u-pill {
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 500;
   color: var(--text-muted);
   background: var(--surface);
@@ -471,7 +471,7 @@ body::before {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 500;
   color: var(--accent);
   text-decoration: none;
@@ -489,11 +489,48 @@ body::before {
   flex-shrink: 0;
   align-items: stretch;
 }
+
+/* ── Dismiss a task that isn't relevant ── */
+.u-dismiss {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: color .15s ease, border-color .15s ease, background .15s ease;
+}
+.u-dismiss:hover {
+  color: var(--error);
+  border-color: var(--border-strong);
+  background: var(--error-light);
+}
+.dismissed-note {
+  margin-top: 12px;
+  padding-top: 11px;
+  border-top: 1px dashed var(--border);
+  font-size: 13px;
+  color: var(--text-muted);
+}
+.link-btn {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  color: var(--accent);
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.link-btn:hover { filter: brightness(1.15); }
 .u-add {
   background: var(--surface);
   border: 1px solid var(--border-strong);
   color: var(--text-secondary);
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 500;
   padding: 5px 10px;
   justify-content: center;
@@ -511,11 +548,11 @@ body::before {
 }
 .untracked-item.editing .u-form { display: flex; }
 .untracked-item.editing .u-add { display: none; }
-.u-form .input { width: auto; padding: 7px 10px; font-size: 12px; }
+.u-form .input { width: auto; padding: 7px 10px; font-size: 14px; }
 .u-form .u-hours,
 .u-form .u-mins  { width: 72px; }
 .u-form .u-date  { width: 152px; }
-.u-form .btn { padding: 7px 13px; font-size: 12px; }
+.u-form .btn { padding: 7px 13px; font-size: 14px; }
 .u-cancel {
   background: transparent;
   color: var(--text-muted);
@@ -525,7 +562,7 @@ body::before {
 
 #btn-deepscan { margin-bottom: 16px; }
 .deepscan-stats {
-  font-size: 11.5px;
+  font-size: 13.5px;
   color: var(--text-muted);
   padding: 8px 12px;
   margin-bottom: 10px;
@@ -540,7 +577,7 @@ body::before {
   text-align: center;
   padding: 32px;
   color: var(--text-muted);
-  font-size: 12.5px;
+  font-size: 15px;
 }
 .untracked-note { color: var(--error); }
 
@@ -562,7 +599,7 @@ body::before {
 }
 .summary-item:hover { background: var(--surface); }
 .summary-item .label {
-  font-size: 9.5px;
+  font-size: 11.5px;
   color: var(--text-muted);
   text-transform: uppercase;
   letter-spacing: .8px;
@@ -570,7 +607,7 @@ body::before {
   margin-bottom: 5px;
 }
 .summary-item .value {
-  font-size: 22px;
+  font-size: 26px;
   font-weight: 600;
   color: var(--text);
   letter-spacing: -.5px;
@@ -592,7 +629,7 @@ body::before {
 .data-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 12.5px;
+  font-size: 15px;
 }
 .data-table thead {
   position: sticky;
@@ -605,7 +642,7 @@ body::before {
   text-align: left;
   font-weight: 500;
   color: var(--text-muted);
-  font-size: 10px;
+  font-size: 12px;
   text-transform: uppercase;
   letter-spacing: .8px;
   border-bottom: 1px solid var(--border);
@@ -624,7 +661,7 @@ body::before {
   color: #fff;
   border-radius: 5px;
   padding: 2px 8px;
-  font-size: 10.5px;
+  font-size: 12.5px;
   font-weight: 600;
   white-space: nowrap;
   letter-spacing: .3px;
@@ -644,7 +681,7 @@ body::before {
   border: 1px dashed var(--border);
   border-radius: 5px;
   padding: 2px 8px;
-  font-size: 10.5px;
+  font-size: 12.5px;
   font-weight: 500;
   color: var(--text-muted);
   cursor: pointer;
@@ -658,7 +695,7 @@ body::before {
 .code-input {
   width: 128px;
   padding: 3px 7px;
-  font-size: 11px;
+  font-size: 13px;
   font-family: inherit;
   border: 1px solid var(--accent);
   border-radius: 5px;
@@ -675,7 +712,7 @@ body::before {
   text-align: center;
   padding: 52px;
   color: var(--text-muted);
-  font-size: 13px;
+  font-size: 15.5px;
 }
 
 /* ── Export row ── */
@@ -686,7 +723,7 @@ body::before {
 }
 .row-count {
   color: var(--text-muted);
-  font-size: 12px;
+  font-size: 14px;
 }
 
 /* ── Status bar ── */
@@ -699,7 +736,7 @@ body::before {
   border: 1px solid var(--border);
   border-radius: 10px;
   padding: 11px 20px;
-  font-size: 12.5px;
+  font-size: 15px;
   font-family: 'Sora', sans-serif;
   display: flex;
   align-items: center;
@@ -722,7 +759,7 @@ body::before {
   gap: 7px;
   margin-top: 44px;
   color: var(--text-muted);
-  font-size: 11.5px;
+  font-size: 13.5px;
   font-weight: 300;
   animation: fadeUp .55s var(--ease) .32s both;
 }
@@ -760,7 +797,7 @@ body::before {
 /* ── Responsive ── */
 @media (max-width: 620px) {
   .app { padding: 36px 16px 60px; }
-  .header h1 { font-size: 34px; }
+  .header h1 { font-size: 40.5px; }
   .card { padding: 22px 20px; }
   .field-row { flex-direction: column; align-items: stretch; }
   .date-row { flex-direction: column; }

@@ -2,7 +2,8 @@ const API = 'https://api.clickup.com/api/v2';
 
 const TOKEN_KEY = 'cu_token';
 const DEV_KEY   = 'cu_developer_option'; // which Developer(s) label is "me"
-const CODE_KEY  = 'cu_code_overrides';   // task id -> hand-entered project code
+const CODE_KEY    = 'cu_code_overrides'; // task id -> hand-entered project code
+const DISMISS_KEY = 'cu_dismissed';      // task ids hidden from the two task lists
 
 // ---------- Manual project codes ----------
 // Some tasks carry no code anywhere — not in the list name, not in the title. Rather
@@ -19,6 +20,46 @@ function saveCodeOverride(taskId, code) {
   if (code) all[taskId] = code; else delete all[taskId];
   try { localStorage.setItem(CODE_KEY, JSON.stringify(all)); } catch (_) {}
   state.codeOverrides = all;
+}
+
+// ---------- Dismissed tasks ----------
+// Not every flagged task is real work that went untracked — some are stale, cancelled,
+// or tracked on the client's retainer task instead. Dismissing one hides it from both
+// lists for good. Local-only, like code overrides: the app never edits ClickUp data.
+function loadDismissed() {
+  try { return new Set(JSON.parse(localStorage.getItem(DISMISS_KEY)) || []); }
+  catch (_) { return new Set(); }
+}
+
+function persistDismissed() {
+  try { localStorage.setItem(DISMISS_KEY, JSON.stringify([...state.dismissed])); } catch (_) {}
+}
+
+function dismissTask(taskId) {
+  if (!taskId) return;
+  state.dismissed.add(taskId);
+  persistDismissed();
+}
+
+// Restoring re-runs the fetch: a dismissed task's row was dropped from state, so the
+// only way to bring it back is to ask ClickUp for it again.
+async function restoreAllDismissed() {
+  state.dismissed.clear();
+  persistDismissed();
+  renderUntracked();
+  if (state.deepscanStats) renderDeepScan(state.deepscan, state.deepscanStats);
+  showStatus('Restored dismissed tasks — refreshing...', 'loading');
+  if (state.token && state.entries.length >= 0) await handleFetch();
+  showStatus('Restored all dismissed tasks.', 'success');
+  setTimeout(hideStatus, 3000);
+}
+
+// Shown under either list so dismissing is never a one-way door.
+function dismissedFooterHTML() {
+  const n = state.dismissed.size;
+  if (!n) return '';
+  return `<div class="dismissed-note">${n} task${n !== 1 ? 's' : ''} dismissed ·
+    <button type="button" class="link-btn" data-restore-all>Restore all</button></div>`;
 }
 
 // ---------- Developer(s) custom field ----------
@@ -62,6 +103,8 @@ let state = {
   devOptions: DEV_OPTIONS_FALLBACK,
   devOptionId: null, // the option representing the logged-in user
   codeOverrides: {},
+  dismissed: new Set(),
+  deepscanStats: null,
 };
 
 // ---------- DOM refs ----------
@@ -94,6 +137,7 @@ const $btnForget      = document.getElementById('btn-forget');
 // ---------- Init ----------
 (function init() {
   state.codeOverrides = loadCodeOverrides();
+  state.dismissed     = loadDismissed();
   setDefaultDates();
   bindEvents();
 
@@ -479,6 +523,7 @@ async function loadUntracked(startMs, endMs, entries) {
     const untracked = tasks.filter(t => {
       if (seen.has(t.id)) return false;
       seen.add(t.id);
+      if (state.dismissed.has(t.id)) return false;
       return !(loggedByTask[t.id] > 0);
     });
 
@@ -545,12 +590,15 @@ function renderUntracked() {
 
   if (list.length === 0) {
     $untrackedList.innerHTML =
-      `<div class="untracked-empty">Every task assigned to you and active in this range has time logged. 🎉</div>`;
+      `<div class="untracked-empty">Every task assigned to you and active in this range has time logged. 🎉</div>`
+      + dismissedFooterHTML();
     return;
   }
 
   const defaultDate = $dateTo.value; // within the fetched range, so the row clears after logging
-  $untrackedList.innerHTML = list.map(t => taskItemHTML(t, defaultDate, { showAssignee: false })).join('');
+  $untrackedList.innerHTML =
+    list.map(t => taskItemHTML(t, defaultDate, { showAssignee: false })).join('')
+    + dismissedFooterHTML();
 }
 
 // Shared markup for a task row with an inline "Add time" form. Used by both the
@@ -590,14 +638,35 @@ function taskItemHTML(t, defaultDate, opts = {}) {
           Open
           <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17L17 7M7 7h10v10"/></svg>
         </a>
+        <button class="u-dismiss" type="button" title="Not relevant — hide this task" aria-label="Dismiss task">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
+        </button>
       </div>
     </div>`;
 }
 
 // Inline "Add time" handling (event-delegated on the untracked list).
 async function onUntrackedClick(e) {
+  if (e.target.closest('[data-restore-all]')) { restoreAllDismissed(); return; }
+
   const item = e.target.closest('.untracked-item');
   if (!item) return;
+
+  if (e.target.closest('.u-dismiss')) {
+    const id   = item.dataset.taskId;
+    const name = item.dataset.taskName || 'task';
+    dismissTask(id);
+    state.untracked = state.untracked.filter(t => t.id !== id);
+    state.deepscan  = state.deepscan.filter(t => t.id !== id);
+    // Re-render both so the "N dismissed · Restore all" line stays accurate in each.
+    // Only touch the scan list if a scan has actually run, or we'd render its results
+    // panel over an untouched card.
+    renderUntracked();
+    if (state.deepscanStats) renderDeepScan(state.deepscan, state.deepscanStats);
+    showStatus(`Dismissed "${name}".`, 'success');
+    setTimeout(hideStatus, 3000);
+    return;
+  }
 
   if (e.target.closest('.u-add')) {
     item.classList.add('editing');
@@ -685,6 +754,7 @@ async function developerScan() {
     const flagged = tasks.filter(t => {
       if (seen.has(t.id)) return false;
       seen.add(t.id);
+      if (state.dismissed.has(t.id)) return false;
       if (loggedTaskIds.has(t.id)) return false;
       const assigneeIds = (t.assignees || []).map(a => String(a.id));
       if (assigneeIds.includes(userId)) return false;
@@ -698,8 +768,9 @@ async function developerScan() {
       return (a.name || '').localeCompare(b.name || '');
     });
 
-    state.deepscan = flagged;
-    renderDeepScan(flagged, { scanned: tasks.length });
+    state.deepscan      = flagged;
+    state.deepscanStats = { scanned: tasks.length };
+    renderDeepScan(flagged, state.deepscanStats);
     hideStatus();
     showStatus(`Scan complete — ${flagged.length} task${flagged.length !== 1 ? 's' : ''} found.`, 'success');
     setTimeout(hideStatus, 3500);
@@ -752,6 +823,7 @@ function renderDeepScan(list, stats) {
     const defaultDate = $dateTo.value;
     html += list.map(t => taskItemHTML(t, defaultDate, { showAssignee: true })).join('');
   }
+  html += dismissedFooterHTML();
 
   $deepscanList.innerHTML = html;
 }
