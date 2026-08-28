@@ -2,6 +2,24 @@ const API = 'https://api.clickup.com/api/v2';
 
 const TOKEN_KEY = 'cu_token';
 const DEV_KEY   = 'cu_developer_option'; // which Developer(s) label is "me"
+const CODE_KEY  = 'cu_code_overrides';   // task id -> hand-entered project code
+
+// ---------- Manual project codes ----------
+// Some tasks carry no code anywhere — not in the list name, not in the title. Rather
+// than export a blank column, the user types the code once and we remember it here.
+// Kept local on purpose: the app is read + append-only against ClickUp and must never
+// edit existing task data, so an override lives in the browser, not in the workspace.
+function loadCodeOverrides() {
+  try { return JSON.parse(localStorage.getItem(CODE_KEY)) || {}; } catch (_) { return {}; }
+}
+
+function saveCodeOverride(taskId, code) {
+  if (!taskId) return;
+  const all = loadCodeOverrides();
+  if (code) all[taskId] = code; else delete all[taskId];
+  try { localStorage.setItem(CODE_KEY, JSON.stringify(all)); } catch (_) {}
+  state.codeOverrides = all;
+}
 
 // ---------- Developer(s) custom field ----------
 // Workspace-level labels field (formerly "Project Owner"). Developers add themselves
@@ -43,6 +61,7 @@ let state = {
   deepscan: [],
   devOptions: DEV_OPTIONS_FALLBACK,
   devOptionId: null, // the option representing the logged-in user
+  codeOverrides: {},
 };
 
 // ---------- DOM refs ----------
@@ -74,6 +93,7 @@ const $btnForget      = document.getElementById('btn-forget');
 
 // ---------- Init ----------
 (function init() {
+  state.codeOverrides = loadCodeOverrides();
   setDefaultDates();
   bindEvents();
 
@@ -118,6 +138,7 @@ function bindEvents() {
 
   $wsSelect.addEventListener('change', () => { state.teamId = $wsSelect.value; });
   $untrackedList.addEventListener('click', onUntrackedClick);
+  $tableBody.addEventListener('click', onTableClick);
   $btnDeepscan.addEventListener('click', developerScan);
   $deepscanList.addEventListener('click', onUntrackedClick);
 }
@@ -422,7 +443,11 @@ function parseEntry(e, taskCache = {}) {
     folderId   = t.folder?.id    || t.project?.id   || '';
   }
 
-  const { projectCode, projectInfo } = parseListName(listName, listId, folderId, folderName);
+  let { projectCode, projectInfo } = parseProject(listName, listId, folderId, folderName, taskName);
+
+  // A code the user typed in beats anything we derived.
+  const taskId = e.task?.id || '';
+  if (state.codeOverrides[taskId]) projectCode = state.codeOverrides[taskId];
 
   const d        = new Date(parseInt(e.start));
   const date     = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
@@ -431,7 +456,7 @@ function parseEntry(e, taskCache = {}) {
   const durationMs = parseInt(e.duration || 0);
   const hours      = +(durationMs / 3600000).toFixed(2);
 
-  return { date, sortDate, projectCode, projectInfo, taskName, hours, folderName, raw: e };
+  return { date, sortDate, projectCode, projectInfo, taskName, taskId, hours, folderName, raw: e };
 }
 
 // ---------- Untracked tasks (Phase 1) ----------
@@ -532,11 +557,11 @@ function renderUntracked() {
 // assigned-untracked list and the deep-scan list.
 function taskItemHTML(t, defaultDate, opts = {}) {
   const listObj  = t.list || {};
-  const { projectCode } = parseListName(listObj.name || '', listObj.id || '', '', '');
+  const name     = t.name || '(untitled task)';
+  const { projectCode } = parseProject(listObj.name || '', listObj.id || '', '', '', name);
   const status   = t.status && t.status.status ? t.status.status : '';
   const dueLabel = t.due_date ? fmtDue(parseInt(t.due_date)) : '';
   const url      = t.url || `https://app.clickup.com/t/${t.id}`;
-  const name     = t.name || '(untitled task)';
   const assignees = (t.assignees || []).map(a => a.username).filter(Boolean).join(', ');
 
   const pills = [
@@ -552,7 +577,8 @@ function taskItemHTML(t, defaultDate, opts = {}) {
         <div class="u-name">${escHtml(name)}</div>
         <div class="u-meta">${pills}</div>
         <div class="u-form">
-          <input type="number" class="input u-hours" min="0.25" step="0.25" placeholder="Hrs" aria-label="Hours" />
+          <input type="number" class="input u-hours" min="0" step="1" placeholder="Hrs" aria-label="Hours" />
+          <input type="number" class="input u-mins" min="0" max="59" step="5" placeholder="Min" aria-label="Minutes" />
           <input type="date" class="input u-date" value="${escHtml(defaultDate)}" aria-label="Date" />
           <button class="btn btn-success u-save" type="button">Log</button>
           <button class="btn u-cancel" type="button">Cancel</button>
@@ -590,11 +616,15 @@ async function onUntrackedClick(e) {
 
   const taskId  = item.dataset.taskId;
   const name    = item.dataset.taskName || 'task';
-  const hours   = parseFloat(item.querySelector('.u-hours').value);
+  const hrs     = parseFloat(item.querySelector('.u-hours').value) || 0;
+  const mins    = parseFloat(item.querySelector('.u-mins').value)  || 0;
   const dateStr = item.querySelector('.u-date').value;
 
-  if (!(hours > 0)) {
-    showStatus('Enter a number of hours greater than 0.', 'error');
+  // Either box alone is a valid entry — plenty of tasks are just 30 minutes.
+  const totalMinutes = Math.round(hrs * 60 + mins);
+
+  if (!(totalMinutes > 0)) {
+    showStatus('Enter hours, minutes, or both.', 'error');
     setTimeout(hideStatus, 3000);
     return;
   }
@@ -604,12 +634,13 @@ async function onUntrackedClick(e) {
     return;
   }
 
+  const label = fmtDuration(totalMinutes);
   saveBtn.disabled = true;
-  showStatus(`Logging ${hours}h to "${name}"...`, 'loading');
+  showStatus(`Logging ${label} to "${name}"...`, 'loading');
 
   try {
-    await addTimeEntry(taskId, dateStr, hours);
-    showStatus(`Logged ${hours}h to "${name}".`, 'success');
+    await addTimeEntry(taskId, dateStr, totalMinutes);
+    showStatus(`Logged ${label} to "${name}".`, 'success');
     setTimeout(hideStatus, 3000);
     // Remove the row immediately (covers the deep-scan list, which handleFetch won't rebuild)...
     state.deepscan = state.deepscan.filter(t => t.id !== taskId);
@@ -725,9 +756,17 @@ function renderDeepScan(list, stats) {
   $deepscanList.innerHTML = html;
 }
 
-async function addTimeEntry(taskId, dateStr, hours) {
+// "90" -> "1h 30m", "30" -> "30m", "120" -> "2h"
+function fmtDuration(totalMinutes) {
+  const h = Math.floor(totalMinutes / 60);
+  const m = totalMinutes % 60;
+  if (h && m) return `${h}h ${m}m`;
+  return h ? `${h}h` : `${m}m`;
+}
+
+async function addTimeEntry(taskId, dateStr, totalMinutes) {
   const startMs    = new Date(dateStr + 'T09:00:00').getTime(); // 9am local on the chosen day
-  const durationMs = Math.round(hours * 3600000);
+  const durationMs = Math.round(totalMinutes * 60000);
   // Omit assignee so ClickUp attributes the entry to the token owner (self).
   return cuPost(`/team/${state.teamId}/time_entries`, state.token, {
     tid: taskId,
@@ -742,11 +781,21 @@ function fmtDue(ms) {
 }
 
 // Derive a "(CODE) Name" project code + label from a ClickUp list name.
-function parseListName(listName, listId, folderId, folderName) {
+// Resolves the client/project code for a row.
+//
+// Shared lists (SEM, SEO, CMS, Web Maintenance) carry no code in the list name, so the
+// team puts the client code in the task title instead: "[333660996315]— Zebedee ...".
+// The task code is the more specific of the two, so it wins over the list's.
+//
+// When nothing yields a code the answer is 'N/A', never the ClickUp list id — an
+// internal id in the project column of a timesheet is noise, not data. 'N/A' rows can
+// be filled in by hand in the table.
+function parseProject(listName, listId, folderId, folderName, taskName) {
+  const fromTask = extractTaskCode(taskName);
   let projectCode, projectInfo;
 
   if (listName) {
-    // "(CODE) List Name" — leading code takes priority
+    // "(CODE) List Name" — leading code
     const leading  = listName.match(/^\(([^)]+)\)\s*(.+)$/);
     // "List Name (195154245335)" — trailing pure-numeric code
     const trailing = listName.match(/^(.*?)\s*\((\d+)\)\s*$/);
@@ -758,17 +807,29 @@ function parseListName(listName, listId, folderId, folderName) {
       projectCode = trailing[2];
       projectInfo = trailing[1].trim() || folderName || 'N/A';
     } else {
-      projectCode = listId || folderId || 'N/A';
+      projectCode = 'N/A';
       projectInfo = listName;
     }
   } else {
-    projectCode = folderId || 'N/A';
+    projectCode = 'N/A';
     projectInfo = folderName || 'N/A';
   }
+
+  // The task's own code is more specific than the list's, so it takes precedence.
+  if (fromTask) projectCode = fromTask;
 
   if (!projectCode) projectCode = 'N/A';
   if (!projectInfo) projectInfo = 'N/A';
   return { projectCode, projectInfo };
+}
+
+// "[333660996315]— Zebedee Solution (Pte Ltd) - To Hide Product Page" -> "333660996315"
+// Only a leading bracketed run of digits counts: a bracket elsewhere in a title is
+// prose, not a code.
+function extractTaskCode(taskName) {
+  if (!taskName) return null;
+  const m = String(taskName).match(/^\s*[\[(]\s*(\d{4,})\s*[\])]/);
+  return m ? m[1] : null;
 }
 
 // ---------- Helpers ----------
@@ -815,7 +876,7 @@ function renderTable(entries) {
   entries.forEach(e => {
     const tr = document.createElement('tr');
     tr.innerHTML = `
-      <td>${e.projectCode !== 'N/A' ? `<span class="badge-code">${escHtml(e.projectCode)}</span>` : '<span style="color:var(--text-muted)">N/A</span>'}</td>
+      <td>${codeCellHTML(e)}</td>
       <td>${escHtml(e.projectInfo)}</td>
       <td>${escHtml(e.taskName)}</td>
       <td>${escHtml(e.date)}</td>
@@ -824,7 +885,77 @@ function renderTable(entries) {
     $tableBody.appendChild(tr);
   });
 
-  $rowCount.textContent = `${entries.length} row${entries.length !== 1 ? 's' : ''}`;
+  const unresolved = entries.filter(e => e.projectCode === 'N/A').length;
+  $rowCount.textContent = `${entries.length} row${entries.length !== 1 ? 's' : ''}` +
+    (unresolved ? ` · ${unresolved} without a project code` : '');
+}
+
+// A resolved code renders as a badge; an unresolved one as a button that turns into an
+// input, so the gap is fixable in place instead of after export.
+function codeCellHTML(e) {
+  const overridden = Boolean(e.taskId && state.codeOverrides[e.taskId]);
+
+  if (e.projectCode !== 'N/A') {
+    return `<span class="badge-code ${overridden ? 'is-manual' : ''}" data-task-id="${escHtml(e.taskId)}"
+                  title="${overridden ? 'Entered by you — click to change' : 'Click to override'}"
+                  role="button" tabindex="0">${escHtml(e.projectCode)}</span>`;
+  }
+  return `<button type="button" class="code-add" data-task-id="${escHtml(e.taskId)}">+ Add code</button>`;
+}
+
+// Swap the cell for an input. Enter or blur saves, Escape cancels.
+function beginCodeEdit(cell, taskId, current) {
+  const td = cell.closest('td');
+  if (!td || td.querySelector('input')) return;
+
+  td.innerHTML = `<input type="text" class="code-input" value="${escHtml(current === 'N/A' ? '' : current)}"
+                         placeholder="Project code" aria-label="Project code" />`;
+  const input = td.querySelector('input');
+  input.focus();
+  input.select();
+
+  let settled = false;
+  const commit = (save) => {
+    if (settled) return;
+    settled = true;
+    if (save) {
+      const val = input.value.trim();
+      saveCodeOverride(taskId, val);
+      // Re-derive from source so the entry, the table and the CSV agree.
+      state.entries = state.entries.map(en =>
+        en.taskId === taskId
+          ? { ...en, projectCode: val || derivedCode(en) }
+          : en);
+    }
+    renderTable(state.entries);
+  };
+
+  input.addEventListener('keydown', ev => {
+    if (ev.key === 'Enter')  { ev.preventDefault(); commit(true); }
+    if (ev.key === 'Escape') { ev.preventDefault(); commit(false); }
+  });
+  input.addEventListener('blur', () => commit(true));
+}
+
+// What the code would be without a manual override — used when one is cleared.
+function derivedCode(entry) {
+  const e = entry.raw || {};
+  const loc = e.task_location || e.taskLocation || {};
+  const listName = loc.list_name || loc.listName || e.task?.list?.name || '';
+  const folderName = loc.folder_name || loc.folderName || e.task?.folder?.name || '';
+  const folderId = loc.folder_id || loc.folderId || e.task?.folder?.id || '';
+  const listId = loc.list_id || loc.listId || e.task?.list?.id || '';
+  return parseProject(listName, listId, folderId, folderName, entry.taskName).projectCode;
+}
+
+function onTableClick(ev) {
+  const addBtn = ev.target.closest('.code-add');
+  if (addBtn) { beginCodeEdit(addBtn, addBtn.dataset.taskId, 'N/A'); return; }
+
+  const badge = ev.target.closest('.badge-code');
+  if (badge && badge.dataset.taskId) {
+    beginCodeEdit(badge, badge.dataset.taskId, badge.textContent.trim());
+  }
 }
 
 // ---------- Export ----------

@@ -512,7 +512,8 @@ body::before {
 .untracked-item.editing .u-form { display: flex; }
 .untracked-item.editing .u-add { display: none; }
 .u-form .input { width: auto; padding: 7px 10px; font-size: 12px; }
-.u-form .u-hours { width: 84px; }
+.u-form .u-hours,
+.u-form .u-mins  { width: 72px; }
 .u-form .u-date  { width: 152px; }
 .u-form .btn { padding: 7px 13px; font-size: 12px; }
 .u-cancel {
@@ -627,6 +628,43 @@ body::before {
   font-weight: 600;
   white-space: nowrap;
   letter-spacing: .3px;
+  cursor: pointer;
+}
+.badge-code:hover { filter: brightness(1.12); }
+/* A code the user typed, rather than one parsed from ClickUp. */
+.badge-code.is-manual {
+  background: transparent;
+  color: var(--accent);
+  border: 1px dashed var(--accent);
+}
+
+/* ── Fill in a missing project code ── */
+.code-add {
+  background: transparent;
+  border: 1px dashed var(--border);
+  border-radius: 5px;
+  padding: 2px 8px;
+  font-size: 10.5px;
+  font-weight: 500;
+  color: var(--text-muted);
+  cursor: pointer;
+  white-space: nowrap;
+  font-family: inherit;
+}
+.code-add:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+.code-input {
+  width: 128px;
+  padding: 3px 7px;
+  font-size: 11px;
+  font-family: inherit;
+  border: 1px solid var(--accent);
+  border-radius: 5px;
+  background: var(--card);
+  color: var(--text);
+  outline: none;
 }
 .hours-val {
   font-weight: 600;

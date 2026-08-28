@@ -185,6 +185,30 @@ lookups failed instead of letting the CSV come out quietly wrong.
 **Any new per-item fetch must use `mapPooled`.** Note `mapPooled` pre-fills its results array — an
 unassigned slot would be a *hole*, and `filter`/`forEach` skip holes, which silently hides failures.
 
+## Phase 2.7 — Project codes and finer time entry ✅ (implemented 2026-08-28)
+
+**Project code resolution.** Shared lists (`SEM`, `SEO`, `CMS`, `Web Maintenance / Miscellaneous`)
+carry no code in the list name, so the team puts the client code in the *task title* instead:
+`[333660996315]— Zebedee Solution (Pte Ltd) - To Hide Product Page`. `parseListName` only ever looked
+at the list, so those rows fell through to a branch that used the raw **ClickUp list id** as the project
+code — e.g. list `901800178638` (the list literally named `SEM`) showing up in the export.
+
+`parseListName` is now `parseProject(listName, listId, folderId, folderName, taskName)`:
+1. `(CODE) List Name` or `List Name (CODE)` — as before.
+2. **A leading `[code]` / `(code)` in the task title wins over the list's** — it's the more specific of
+   the two. Requires 4+ digits at the very start, so a bracket mid-title stays prose.
+3. Otherwise **`N/A`** — never the list id. An internal id in the project column is noise, not data.
+
+**Manual codes.** `N/A` rows render a `+ Add code` button; any code cell can be clicked to edit. Values
+persist in `localStorage` under `cu_code_overrides` (task id → code) and flow into the table and the CSV.
+Clearing one falls back to the derived code rather than the stale value. Kept local **on purpose** — the
+app is read + append-only and must never edit existing task data, so an override lives in the browser,
+not the workspace. The row count line reports how many entries still lack a code.
+
+**Hours and minutes.** The Add time form was a single hours box stepping in 0.25. It's now separate
+**Hrs** and **Min** inputs — plenty of tasks are just 30 minutes — and either alone is valid.
+`addTimeEntry` takes total minutes and posts `duration` in ms.
+
 ## Phase 3 — Polish — *later*
 - Persist selected workspace + last date range.
 - Fold the untracked count into the summary grid.
@@ -262,4 +286,5 @@ Other IDs: workspace/team `3300027` (MediaPlus Digital), Gibson `43791299`.
 | 2 | Log time from app | ~1 day ✅ |
 | 2.5 | Deep scan (watcher — signal broken, superseded) | ~1 day ⚠ |
 | 2.6 | Replace deep scan with `Developer(s)` filter | ~half day ✅ |
+| 2.7 | Project codes from task titles + hrs/min entry | ~half day ✅ |
 | 3 | Polish | ~half day |
