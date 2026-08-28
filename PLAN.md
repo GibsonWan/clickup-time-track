@@ -220,6 +220,19 @@ not the workspace. The row count line reports how many entries still lack a code
   A `N tasks dismissed · Restore all` line under each list keeps it from being a one-way door; restoring
   re-runs the fetch, since a dismissed row is gone from state. Local-only, like code overrides.
 
+## Phase 2.9 — Date range off by one day (timezone bug) ✅ (fixed 2026-08-28)
+`setDefaultDates` and `applyQuickRange` already intended 1st → last day of month, but `fmt()` used
+`toISOString()`, which converts to **UTC first**. East of Greenwich local midnight is the previous day
+in UTC, so at UTC+8 (Asia/Kuala_Lumpur) August defaulted to **31 Jul – 30 Aug**: it silently included a
+day of July and **dropped the 31st entirely**. Every quick range (This Week / This Month / Last Month)
+was shifted the same way, and month-end time entries were being missed in exports.
+
+`fmt()` now builds `YYYY-MM-DD` from `getFullYear/getMonth/getDate` — local, no UTC conversion.
+`parseEntry`'s `sortDate` used `toISOString()` too, so it sorted by UTC while the row displayed a local
+date; an entry before 08:00 local sorted under the previous day. It now uses the same local `fmt`.
+
+**Never use `toISOString()` for a calendar date in this app** — it is a UTC conversion, not a formatter.
+
 ## Phase 3 — Polish — *later*
 - Persist selected workspace + last date range.
 - Fold the untracked count into the summary grid.
@@ -299,4 +312,5 @@ Other IDs: workspace/team `3300027` (MediaPlus Digital), Gibson `43791299`.
 | 2.6 | Replace deep scan with `Developer(s)` filter | ~half day ✅ |
 | 2.7 | Project codes from task titles + hrs/min entry | ~half day ✅ |
 | 2.8 | 1280px layout, 16px type scale, dismiss tasks | ~half day ✅ |
+| 2.9 | Fix UTC off-by-one in date ranges | ✅ |
 | 3 | Polish | ~half day |

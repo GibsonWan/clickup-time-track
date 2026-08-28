@@ -158,8 +158,14 @@ function setDefaultDates() {
   $dateTo.value   = fmt(lastDay);
 }
 
+// Format as YYYY-MM-DD in LOCAL time. toISOString() would convert to UTC first, and
+// east of Greenwich local midnight is the previous day in UTC — so at UTC+8 a range
+// meant as 1–31 Aug came out as 31 Jul – 30 Aug, silently dropping the 31st.
 function fmt(d) {
-  return d.toISOString().slice(0, 10);
+  const y  = d.getFullYear();
+  const m  = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${dd}`;
 }
 
 // ---------- Events ----------
@@ -495,7 +501,9 @@ function parseEntry(e, taskCache = {}) {
 
   const d        = new Date(parseInt(e.start));
   const date     = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-  const sortDate = d.toISOString().slice(0, 10);
+  // Local, to match the displayed date — UTC here would sort an early-morning entry
+  // under the previous day while the row still showed today's date.
+  const sortDate = fmt(d);
 
   const durationMs = parseInt(e.duration || 0);
   const hours      = +(durationMs / 3600000).toFixed(2);
