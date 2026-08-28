@@ -140,6 +140,13 @@ const $btnForget      = document.getElementById('btn-forget');
 
 // ---------- Init ----------
 (function init() {
+  // The token field is type="text" masked with -webkit-text-security so Chrome doesn't
+  // treat it as a login and prompt to save it. If a browser can't mask it that way,
+  // fall back to a real password field — a visible token is the worse trade.
+  const canMask = window.CSS && CSS.supports &&
+    (CSS.supports('-webkit-text-security', 'disc') || CSS.supports('text-security', 'disc'));
+  if (!canMask) $token.type = 'password';
+
   state.codeOverrides = loadCodeOverrides();
   state.dismissed     = loadDismissed();
   setDefaultDates();
@@ -650,10 +657,10 @@ function taskItemHTML(t, defaultDate, opts = {}) {
           Open
           <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17L17 7M7 7h10v10"/></svg>
         </a>
-        <button class="u-dismiss" type="button" title="Not relevant — hide this task" aria-label="Dismiss task">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
-        </button>
       </div>
+      <button class="u-dismiss" type="button" title="Not relevant — hide this task" aria-label="Dismiss task">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
+      </button>
     </div>`;
 }
 

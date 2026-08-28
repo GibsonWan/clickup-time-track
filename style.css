@@ -374,6 +374,16 @@ body::before {
   color-scheme: light;
   max-width: 340px;
 }
+/* Masks the token without making it a password field — see the note in index.html. */
+#api-token {
+  -webkit-text-security: disc;
+  text-security: disc;
+}
+#api-token::placeholder {
+  -webkit-text-security: none;
+  text-security: none;
+}
+
 .field-hint {
   margin: 2px 0 0;
   font-size: 13.5px;
@@ -427,10 +437,12 @@ body::before {
   overflow-y: auto;
 }
 .untracked-item {
+  position: relative;                 /* anchors the corner dismiss button */
   display: flex;
   align-items: flex-start;
   gap: 12px;
   padding: 12px 14px;
+  padding-right: 36px;                /* room for the × so text never runs under it */
   background: var(--surface2);
   border: 1px solid var(--border);
   border-left: 3px solid var(--border-strong);
@@ -491,21 +503,31 @@ body::before {
 }
 
 /* ── Dismiss a task that isn't relevant ── */
+/* Sits in the row's top-right corner like a window close button, not in the action
+   stack — it's a different kind of action from "Add time" / "Open". */
 .u-dismiss {
+  position: absolute;
+  top: 6px;
+  right: 6px;
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 4px;
+  width: 24px;
+  height: 24px;
+  padding: 0;
   background: transparent;
-  border: 1px solid transparent;
+  border: none;
   border-radius: 6px;
   color: var(--text-muted);
+  opacity: .55;
   cursor: pointer;
-  transition: color .15s ease, border-color .15s ease, background .15s ease;
+  transition: color .15s ease, background .15s ease, opacity .15s ease;
 }
-.u-dismiss:hover {
+.untracked-item:hover .u-dismiss { opacity: 1; }
+.u-dismiss:hover,
+.u-dismiss:focus-visible {
+  opacity: 1;
   color: var(--error);
-  border-color: var(--border-strong);
   background: var(--error-light);
 }
 .dismissed-note {

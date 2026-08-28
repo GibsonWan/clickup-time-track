@@ -234,6 +234,18 @@ date; an entry before 08:00 local sorted under the previous day. It now uses the
 
 **Never use `toISOString()` for a calendar date in this app** — it is a UTC conversion, not a formatter.
 
+## Phase 2.10 — Corner dismiss, and stop Chrome's save-password prompt ✅ (2026-08-28)
+- The × moved out of the `Add time` / `Open` stack to the row's **top-right corner**, absolutely
+  positioned like a window close button. It's a different kind of action from the other two and reads
+  better apart from them. Dimmed to .55 until the row is hovered so it isn't clicked by accident.
+- **Chrome offered to save a password on every connect.** Cause: the token input was
+  `type="password"`, and Chrome treats *any* password field as a credential, offering to save it after
+  a login-shaped action — it deliberately ignores `autocomplete="off"` for this.
+  Fixed by making it `type="text"` masked with `-webkit-text-security: disc`, so there is no password
+  field on the page at all. `app.js` feature-detects and falls back to `type="password"` where that CSS
+  isn't supported (pre-118 Firefox), since a visible token is the worse trade.
+  **Don't change this input back to `type="password"`** — the prompt comes straight back.
+
 ## Phase 3 — Polish — *later*
 - Persist selected workspace + last date range.
 - Fold the untracked count into the summary grid.
