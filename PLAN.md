@@ -284,6 +284,31 @@ apostrophe-prefixed codes. Straight into Sheets as cells, no file round-trip.
 - Both paths need a real user gesture, so this can't be exercised by scripted clicks — verified with an
   actual click, which reported the modern API succeeding with a byte count matching the generated TSV.
 
+## Phase 2.12 — Review pass ✅ (2026-08-28)
+A read-through of the whole app after the session's changes. Found and fixed:
+
+1. **Copy table could stick on "Copied".** `flashCopied` read the button's current markup as the
+   thing to restore, so a second click inside the 1.6s window captured *"Copied"* and restored that
+   permanently. The pristine markup is now captured once at load and the pending timer is cleared.
+2. **Add time pre-filled a future date.** It defaulted to the end of the range — on a whole-month range
+   that's the 31st, regardless of today. Now `defaultLogDate()`: today when it's inside the range,
+   otherwise the nearest edge (still in range, so the row clears after logging).
+3. **Switching workspace kept the old workspace's state.** Custom fields are workspace-level, so the
+   Developer(s) roster belonged to the workspace it was fetched from — the picker held option ids
+   meaningless in the new one, and stale entries/tasks stayed on screen. `handleWorkspaceChange()` now
+   re-reads the roster and clears results. (Only bites multi-workspace users.)
+4. **The write confirmation was never visible.** "Logged 45m" was shown *before* `handleFetch()`, which
+   drives the status bar itself and overwrote it within a frame — so a successful write looked
+   unconfirmed. Moved after the refresh.
+5. `renderUserInfo` interpolated `username` / `profilePicture` into HTML attributes unescaped.
+6. `+ Add code` rendered for entries with no task id; since overrides are keyed by task id, one edit
+   would have applied to every such row. Those now render a plain `N/A`.
+7. Dead conditions (`state.entries.length >= 0`) and a stale comment on `parseProject`.
+
+Verified afterwards with a full regression pass (dates, code resolution, identity matching, cutover,
+durations, pooling/retry, sheet-safe codes) plus a stubbed end-to-end run: connect → fetch → untracked →
+dismiss → log → restore → copy.
+
 ## Phase 3 — Polish — *later*
 - Persist selected workspace + last date range.
 - Fold the untracked count into the summary grid.

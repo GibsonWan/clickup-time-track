@@ -723,6 +723,7 @@ body::before {
   color: var(--accent);
   border-color: var(--accent);
 }
+.code-none { color: var(--text-muted); }
 .code-input {
   width: 128px;
   padding: 3px 7px;

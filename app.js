@@ -49,7 +49,7 @@ async function restoreAllDismissed() {
   renderUntracked();
   if (state.deepscanStats) renderDeepScan(state.deepscan, state.deepscanStats);
   showStatus('Restored dismissed tasks — refreshing...', 'loading');
-  if (state.token && state.entries.length >= 0) await handleFetch();
+  if (state.token) await handleFetch();
   showStatus('Restored all dismissed tasks.', 'success');
   setTimeout(hideStatus, 3000);
 }
@@ -183,6 +183,8 @@ function fmt(d) {
 // ---------- Events ----------
 function bindEvents() {
   $btnConnect.addEventListener('click', () => handleConnect());
+  // Call with no args — passing the event through would land it in handleConnect's
+  // `opts` parameter.
   $token.addEventListener('keydown', e => { if (e.key === 'Enter') handleConnect(); });
   $btnForget.addEventListener('click', handleForget);
   $devSelect.addEventListener('change', handleDeveloperChange);
@@ -199,7 +201,7 @@ function bindEvents() {
   $btnExport.addEventListener('click', exportCSV);
   $btnCopy.addEventListener('click', copyTable);
 
-  $wsSelect.addEventListener('change', () => { state.teamId = $wsSelect.value; });
+  $wsSelect.addEventListener('change', handleWorkspaceChange);
   $untrackedList.addEventListener('click', onUntrackedClick);
   $tableBody.addEventListener('click', onTableClick);
   $btnDeepscan.addEventListener('click', developerScan);
@@ -278,6 +280,32 @@ async function handleConnect(opts = {}) {
   }
 }
 
+// Custom fields are workspace-level, so the Developer(s) roster belongs to the
+// workspace we fetched it from. Switching without re-reading it would leave the picker
+// holding option ids that mean nothing in the new workspace — and any results already
+// on screen belong to the old one.
+async function handleWorkspaceChange() {
+  state.teamId        = $wsSelect.value;
+  state.entries       = [];
+  state.untracked     = [];
+  state.deepscan      = [];
+  state.deepscanStats = null;
+
+  renderTable([]);
+  $untrackedCount.textContent = '';
+  $untrackedList.innerHTML    = '';
+  $deepscanCount.textContent  = '';
+  $deepscanList.innerHTML     = '';
+  $secExport.classList.add('disabled');
+  $secUntracked.classList.add('disabled');
+  $secDeepscan.classList.add('disabled');
+  $btnExport.disabled = true;
+  $btnCopy.disabled   = true;
+
+  await setupDeveloperPicker();
+  updateDevScanAvailability();
+}
+
 // Clears the saved token — for shared machines, or switching accounts.
 function handleForget() {
   localStorage.removeItem(TOKEN_KEY);
@@ -289,8 +317,8 @@ function renderUserInfo(user) {
   $userInfo.innerHTML = `
     <div class="avatar">
       ${user.profilePicture
-        ? `<img src="${user.profilePicture}" alt="${user.username}" />`
-        : user.username.charAt(0).toUpperCase()}
+        ? `<img src="${escHtml(user.profilePicture)}" alt="${escHtml(user.username)}" />`
+        : escHtml(String(user.username || '?').charAt(0).toUpperCase())}
     </div>
     <div>
       <div class="user-name">${escHtml(user.username)}</div>
@@ -617,10 +645,22 @@ function renderUntracked() {
     return;
   }
 
-  const defaultDate = $dateTo.value; // within the fetched range, so the row clears after logging
   $untrackedList.innerHTML =
-    list.map(t => taskItemHTML(t, defaultDate, { showAssignee: false })).join('')
+    list.map(t => taskItemHTML(t, defaultLogDate(), { showAssignee: false })).join('')
     + dismissedFooterHTML();
+}
+
+// The date an Add time form starts on. It has to land inside the fetched range or the
+// row won't clear after logging — but the end of the range is often in the future (a
+// whole-month range on the 12th pre-fills the 31st), and nobody means to log time on a
+// date that hasn't happened. Today when it's in range, otherwise the nearest edge.
+function defaultLogDate() {
+  const today = fmt(new Date());
+  const from  = $dateFrom.value;
+  const to    = $dateTo.value;
+  if (from && today < from) return from;
+  if (to   && today > to)   return to;
+  return today;
 }
 
 // Shared markup for a task row with an inline "Add time" form. Used by both the
@@ -731,13 +771,15 @@ async function onUntrackedClick(e) {
 
   try {
     await addTimeEntry(taskId, dateStr, totalMinutes);
-    showStatus(`Logged ${label} to "${name}".`, 'success');
-    setTimeout(hideStatus, 3000);
     // Remove the row immediately (covers the deep-scan list, which handleFetch won't rebuild)...
     state.deepscan = state.deepscan.filter(t => t.id !== taskId);
     item.remove();
     // ...then refresh timesheet + assigned-untracked list from source of truth so totals stay correct.
     await handleFetch();
+    // Confirm *after* the refresh: handleFetch drives the status bar itself, so a message
+    // shown before it is overwritten within a frame and the write appears to go unconfirmed.
+    showStatus(`Logged ${label} to "${name}".`, 'success');
+    setTimeout(hideStatus, 3000);
   } catch (err) {
     showStatus(err.message || 'Failed to log time.', 'error');
     saveBtn.disabled = false;
@@ -820,7 +862,7 @@ function devFieldCoversRange() {
 }
 
 function updateDevScanAvailability() {
-  const ready = Boolean(state.token && state.entries.length >= 0 && state.devOptionId);
+  const ready = Boolean(state.token && state.devOptionId);
   $btnDeepscan.disabled = !ready || $secDeepscan.classList.contains('disabled');
 }
 
@@ -842,8 +884,7 @@ function renderDeepScan(list, stats) {
   if (list.length === 0) {
     html += `<div class="untracked-empty">No tasks tagged with your name are missing time in this range.</div>`;
   } else {
-    const defaultDate = $dateTo.value;
-    html += list.map(t => taskItemHTML(t, defaultDate, { showAssignee: true })).join('');
+    html += list.map(t => taskItemHTML(t, defaultLogDate(), { showAssignee: true })).join('');
   }
   html += dismissedFooterHTML();
 
@@ -874,7 +915,6 @@ function fmtDue(ms) {
   return new Date(ms).toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' });
 }
 
-// Derive a "(CODE) Name" project code + label from a ClickUp list name.
 // Resolves the client/project code for a row.
 //
 // Shared lists (SEM, SEO, CMS, Web Maintenance) carry no code in the list name, so the
@@ -994,6 +1034,9 @@ function codeCellHTML(e) {
                   title="${overridden ? 'Entered by you — click to change' : 'Click to override'}"
                   role="button" tabindex="0">${escHtml(e.projectCode)}</span>`;
   }
+  // An override is keyed by task id, so an entry without one has nothing to key on —
+  // offering the button would let a single edit apply to every such row.
+  if (!e.taskId) return '<span class="code-none">N/A</span>';
   return `<button type="button" class="code-add" data-task-id="${escHtml(e.taskId)}">+ Add code</button>`;
 }
 
@@ -1112,13 +1155,19 @@ async function writeClipboard(text) {
   if (!ok) throw new Error('copy failed');
 }
 
+// Captured once at load. Reading it inside flashCopied would, on a second click within
+// the timeout, capture the "Copied" markup as the thing to restore — leaving the button
+// permanently reading "Copied".
+const COPY_BTN_HTML = $btnCopy.innerHTML;
+let copyFlashTimer = null;
+
 function flashCopied() {
-  const original = $btnCopy.innerHTML;
+  clearTimeout(copyFlashTimer);
   $btnCopy.classList.add('is-copied');
   $btnCopy.innerHTML =
     `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg> Copied`;
-  setTimeout(() => {
-    $btnCopy.innerHTML = original;
+  copyFlashTimer = setTimeout(() => {
+    $btnCopy.innerHTML = COPY_BTN_HTML;
     $btnCopy.classList.remove('is-copied');
   }, 1600);
 }
