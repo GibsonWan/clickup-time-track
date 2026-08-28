@@ -678,6 +678,15 @@ body::before {
 .data-table tbody tr:last-child td { border-bottom: none; }
 .data-table tbody tr:hover td { background: var(--accent-light); }
 
+/* Column widths. Task / Location is the only column that should wrap — the others are
+   short, fixed-shape values, so they get just enough room to stay on one line and the
+   task name absorbs whatever's left. */
+.data-table th:nth-child(1), .data-table td:nth-child(1) { width: 13%; white-space: nowrap; }
+.data-table th:nth-child(2), .data-table td:nth-child(2) { width: 21%; }
+.data-table th:nth-child(3), .data-table td:nth-child(3) { width: auto; }
+.data-table th:nth-child(4), .data-table td:nth-child(4) { width: 8%;  white-space: nowrap; }
+.data-table th:nth-child(5), .data-table td:nth-child(5) { width: 9%;  white-space: nowrap; text-align: right; }
+
 .badge-code {
   background: var(--accent);
   color: #fff;
