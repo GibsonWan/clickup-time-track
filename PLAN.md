@@ -95,7 +95,7 @@ Corroborated in the data: task activity reads *"Shawn Lam created this task by c
 and Project Delivery contains the same template task set ("Create Staging", "Final Check +
 Desktop>Tablet>Mobile Responsive", "Go Live", "eCommerce Set Up") repeated across many client lists.
 
-## Phase 2.6 — Replace the deep scan with the `Developer(s)` field — *next*
+## Phase 2.6 — Replace the deep scan with the `Developer(s)` field ✅ (implemented 2026-08-28)
 
 Gibson repurposed the old `Project Owner` custom field into **`Developer(s)`** (same field id, renamed,
 given a 12-person developer roster) and is rolling it out to the team. Every developer who works a task
@@ -136,14 +136,40 @@ time — the signal goes quiet when it's needed most. Phase 1 (assignee) stays t
 - **Cutover date.** Tasks before rollout have an empty field, so a scan over an earlier range returns
   nothing and *looks clean* — a silent wrong answer. Hardcode the rollout date; for ranges before it,
   fall back to assignee-only and say so in the UI ("Developer(s) tracking starts <date>").
-- **Label → user id map.** Options are first names (`Gibson`), the API returns ids (`43791299`). Needs
-  a small map in the app; adding a developer means touching it. Watch for first-name collisions.
+- **Label → user identity.** Options are first names (`Gibson`), the API returns users (`Gibson Wan`).
+  Solved with a picker: the app guesses by name, the user can correct it, and the choice is remembered
+  in `localStorage`. Guessing only accepts an unambiguous single match, so shared first names fall
+  through to a manual pick rather than silently attributing to the wrong person.
 - **Not enforced.** Append-only is a team convention, not a ClickUp constraint — the field can be
   edited or cleared. Accept this; don't build around it.
 
 Rejected signals: **watcher** (template inheritance, above); **creator** (the PM becomes creator when
 copying, so it only catches self-created tasks); **Team custom field** (correct but too coarse — it
 identifies the team, not the person).
+
+### As built
+- Step 05 is now **"Worked but Not Assigned"** (`developerScan`), replacing the watcher deep scan.
+  `fetchSpaces`, `fetchSpaceTasks`, `checkInvolvement`, `getTaskWithRetry`, `isMine`, the 150 cap and
+  the concurrency pool are all deleted — the field filters server-side, so it's two list calls
+  (due-in-range + no-due-date-but-active) with no per-task lookups.
+- The roster is fetched from `GET /team/{teamId}/field` at connect time so a developer added in ClickUp
+  shows up without a code change; if that endpoint isn't available it falls back to the roster hardcoded
+  in `app.js` (`DEV_OPTIONS_FALLBACK`, verified live 2026-08-28).
+- Cutover is `DEV_FIELD_START = '2026-09-01'` in `app.js`. Ranges starting earlier still run, but the
+  card shows a warning that the field was not yet in use — so an empty result never reads as "all clear".
+- **Still not verified against live ClickUp**: the `custom_fields` filter parameter is built to API spec
+  and unit-tested locally, but no real scan has been run. Verify with one September range before relying
+  on it. Same outstanding caveat as the write path.
+
+### Token persistence (shipped alongside)
+The token moved from `sessionStorage` to `localStorage`, so it survives closing the tab — the team pastes
+it once per machine instead of every session — and the app auto-connects on load. A saved token that
+fails auth is dropped rather than leaving the app stuck on a dead credential, and a **Forget saved token**
+button clears both the token and the remembered developer choice for shared machines.
+
+Deliberately *not* done: OAuth. It would remove token handling entirely, but the code-for-token exchange
+needs a client secret, which a static page can't hold — so it needs a Vercel serverless function. Worth
+revisiting if the team grows; `localStorage` gives the same day-to-day experience for two lines.
 
 ## Phase 3 — Polish — *later*
 - Persist selected workspace + last date range.
@@ -201,9 +227,9 @@ Other IDs: workspace/team `3300027` (MediaPlus Digital), Gibson `43791299`.
 # Open decisions — resume here
 1. **Maintenance tickets** — exclude from detection entirely, or show as a separate labelled group
    ("time may be on the client's package tracker")?
-2. ~~**Deep scan v2** — Team-filter + own-comments?~~ **DECIDED (2026-08-28):** superseded by the
-   `Developer(s)` field — see Phase 2.6. Open sub-question: what is the **cutover date** (rollout is
-   "next month" as of 2026-08-28, so likely 2026-09-01)?
+2. ~~**Deep scan v2** — Team-filter + own-comments?~~ **DONE (2026-08-28):** superseded by the
+   `Developer(s)` field and implemented — see Phase 2.6. Cutover set to `2026-09-01`; change
+   `DEV_FIELD_START` in `app.js` if the team starts on a different date.
 3. Exclude the HQ Timesheet space and per-client "Time Tracking" lists from detection (they are the
    *destination* of time, so never "forgotten").
 
@@ -221,5 +247,5 @@ Other IDs: workspace/team `3300027` (MediaPlus Digital), Gibson `43791299`.
 | 1 | Forgot-to-track detection | ~1 day ✅ |
 | 2 | Log time from app | ~1 day ✅ |
 | 2.5 | Deep scan (watcher — signal broken, superseded) | ~1 day ⚠ |
-| 2.6 | Replace deep scan with `Developer(s)` filter | ~half day |
+| 2.6 | Replace deep scan with `Developer(s)` filter | ~half day ✅ |
 | 3 | Polish | ~half day |

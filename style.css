@@ -374,6 +374,26 @@ body::before {
   color-scheme: light;
   max-width: 340px;
 }
+.field-hint {
+  margin: 2px 0 0;
+  font-size: 11.5px;
+  color: var(--text-muted);
+  line-height: 1.45;
+}
+
+/* ── Forget saved token ── */
+.btn-ghost {
+  margin-top: 14px;
+  padding: 5px 10px;
+  font-size: 11.5px;
+  background: transparent;
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+}
+.btn-ghost:hover {
+  color: var(--text);
+  border-color: var(--text-muted);
+}
 
 /* ── Untracked tasks ── */
 .untracked-count {

@@ -56,6 +56,12 @@
           <label for="workspace-select">Workspace</label>
           <select id="workspace-select" class="input"></select>
         </div>
+        <div id="developer-wrap" class="workspace-wrap hidden">
+          <label for="developer-select">Your name in <strong>Developer(s)</strong></label>
+          <select id="developer-select" class="input"></select>
+          <p class="field-hint">Used to find tasks you worked on but aren't assigned to. Remembered on this device.</p>
+        </div>
+        <button class="btn btn-ghost hidden" id="btn-forget" type="button">Forget saved token</button>
       </section>
 
       <!-- Step 2: Date Range -->
@@ -133,14 +139,14 @@
       <section class="card disabled" id="section-deepscan">
         <div class="card-header">
           <span class="step-badge">05</span>
-          <h2 class="card-title">Deep Scan — Handed-off Tasks</h2>
+          <h2 class="card-title">Worked but Not Assigned</h2>
           <span id="deepscan-count" class="untracked-count"></span>
         </div>
         <p class="card-desc">
-          Scans your spaces for tasks you <strong>watch</strong> (i.e. were assigned to you at some point) or <strong>created</strong>, <strong>due within your selected dates</strong> (or with no due date but active then), with <strong>no time logged</strong> — even if they've since been reassigned to someone else. Heavier than the checks above, so it runs on demand.
+          Finds tasks tagged with your name in the <strong>Developer(s)</strong> field, <strong>due within your selected dates</strong> (or with no due date but active then), with <strong>no time logged</strong> — even if they've since been reassigned to someone else. Add yourself to <strong>Developer(s)</strong> on every task you work and it will be caught here.
         </p>
         <button class="btn btn-primary" id="btn-deepscan" disabled>
-          Scan my spaces
+          Find my tasks
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
         </button>
         <div class="untracked-list" id="deepscan-list"></div>

@@ -1,5 +1,37 @@
 const API = 'https://api.clickup.com/api/v2';
 
+const TOKEN_KEY = 'cu_token';
+const DEV_KEY   = 'cu_developer_option'; // which Developer(s) label is "me"
+
+// ---------- Developer(s) custom field ----------
+// Workspace-level labels field (formerly "Project Owner"). Developers add themselves
+// to every task they work and are never removed, so it accumulates everyone who ever
+// touched the task — the human-maintained stand-in for the assignee history the
+// ClickUp public API doesn't expose.
+const DEV_FIELD_ID = '8ff45c3e-b2e0-447d-80dd-6d7ad4600b37';
+
+// Fallback roster, verified live 2026-08-28. Refreshed from the API at connect time
+// when possible, so adding a developer in ClickUp doesn't require a code change.
+const DEV_OPTIONS_FALLBACK = [
+  { id: 'acf04f01-775e-4ef4-bcee-1f7c44bcda60', label: 'Gibson' },
+  { id: '7557bc08-5b2b-4490-b4df-8c0a9781e3b1', label: 'Victor' },
+  { id: '53b6a888-68ac-405b-a11c-33388673da4b', label: 'Jonathon' },
+  { id: '7232bc01-100a-49a1-995a-e26098e9b579', label: 'Zhen Yang' },
+  { id: 'c3fb6c0c-bf8c-4902-8445-29bc0e1e9d3b', label: 'Marlvin' },
+  { id: '5bab7a33-b2fe-42cf-9625-fd6e84dc05b5', label: 'Amie' },
+  { id: 'e133335f-fe81-4ade-8761-b2d3b815c6b7', label: 'Wen' },
+  { id: '1f75060b-2aaa-4f49-ab41-60464c68f68c', label: 'Shafeeq' },
+  { id: 'fa24511a-9507-498b-9fd1-4894e41c06e0', label: 'Travis' },
+  { id: 'd040312d-6c24-4255-97b9-7ef9abc124af', label: 'Tasha' },
+  { id: '41f60799-bf26-4b57-8391-94920e5a75bb', label: 'Tino' },
+  { id: 'c9bd40c7-793d-4c0f-b18c-a835da8420bd', label: 'Aiman' },
+];
+
+// The team starts filling the field in September 2026. Before this date it is mostly
+// empty, so a scan would come back clean and *look* fine — a silent wrong answer.
+// Ranges starting earlier fall back to assigned-tasks-only, and say so in the UI.
+const DEV_FIELD_START = '2026-09-01';
+
 // ---------- State ----------
 let state = {
   token: '',
@@ -9,6 +41,8 @@ let state = {
   entries: [],
   untracked: [],
   deepscan: [],
+  devOptions: DEV_OPTIONS_FALLBACK,
+  devOptionId: null, // the option representing the logged-in user
 };
 
 // ---------- DOM refs ----------
@@ -34,13 +68,22 @@ const $secDeepscan    = document.getElementById('section-deepscan');
 const $btnDeepscan    = document.getElementById('btn-deepscan');
 const $deepscanList   = document.getElementById('deepscan-list');
 const $deepscanCount  = document.getElementById('deepscan-count');
+const $devWrap        = document.getElementById('developer-wrap');
+const $devSelect      = document.getElementById('developer-select');
+const $btnForget      = document.getElementById('btn-forget');
 
 // ---------- Init ----------
 (function init() {
-  const saved = sessionStorage.getItem('cu_token');
-  if (saved) { $token.value = saved; }
   setDefaultDates();
   bindEvents();
+
+  // The token persists across browser sessions, so the team pastes it once per machine
+  // instead of every time they open the app. Auto-connect straight through to the dates.
+  const saved = localStorage.getItem(TOKEN_KEY);
+  if (saved) {
+    $token.value = saved;
+    handleConnect({ silent: true });
+  }
 })();
 
 function setDefaultDates() {
@@ -57,8 +100,10 @@ function fmt(d) {
 
 // ---------- Events ----------
 function bindEvents() {
-  $btnConnect.addEventListener('click', handleConnect);
+  $btnConnect.addEventListener('click', () => handleConnect());
   $token.addEventListener('keydown', e => { if (e.key === 'Enter') handleConnect(); });
+  $btnForget.addEventListener('click', handleForget);
+  $devSelect.addEventListener('change', handleDeveloperChange);
 
   $btnFetch.addEventListener('click', handleFetch);
 
@@ -73,7 +118,7 @@ function bindEvents() {
 
   $wsSelect.addEventListener('change', () => { state.teamId = $wsSelect.value; });
   $untrackedList.addEventListener('click', onUntrackedClick);
-  $btnDeepscan.addEventListener('click', deepScan);
+  $btnDeepscan.addEventListener('click', developerScan);
   $deepscanList.addEventListener('click', onUntrackedClick);
 }
 
@@ -105,11 +150,11 @@ function validateDates() {
 }
 
 // ---------- Connect ----------
-async function handleConnect() {
+async function handleConnect(opts = {}) {
   const token = $token.value.trim();
   if (!token) { showStatus('Paste your ClickUp API token first.', 'error'); return; }
 
-  showStatus('Connecting...', 'loading');
+  showStatus(opts.silent ? 'Reconnecting...' : 'Connecting...', 'loading');
   $btnConnect.disabled = true;
 
   try {
@@ -128,20 +173,32 @@ async function handleConnect() {
     const preferred = state.teams.find(t => /mediaplus/i.test(t.name || '')) || state.teams[0];
     state.teamId = preferred.id;
 
-    sessionStorage.setItem('cu_token', token);
+    localStorage.setItem(TOKEN_KEY, token);
 
     renderUserInfo(state.user);
     renderWorkspaces(state.teams, state.teamId);
+    await setupDeveloperPicker();
+    $btnForget.classList.remove('hidden');
     $secDates.classList.remove('disabled');
     validateDates();
     hideStatus();
     showStatus('Connected as ' + state.user.username, 'success');
     setTimeout(hideStatus, 3000);
   } catch (err) {
+    // A saved token that no longer works shouldn't leave the app stuck on a dead
+    // credential — drop it so the next load shows a clean connect form.
+    if (opts.silent) localStorage.removeItem(TOKEN_KEY);
     showStatus(err.message || 'Connection failed. Check your token.', 'error');
   } finally {
     $btnConnect.disabled = false;
   }
+}
+
+// Clears the saved token — for shared machines, or switching accounts.
+function handleForget() {
+  localStorage.removeItem(TOKEN_KEY);
+  localStorage.removeItem(DEV_KEY);
+  location.reload();
 }
 
 function renderUserInfo(user) {
@@ -166,6 +223,62 @@ function renderWorkspaces(teams, selectedId) {
   $wsWrap.classList.remove('hidden');
 }
 
+// ---------- Developer(s) identity ----------
+// The field's options are first-name labels ("Gibson"); the API gives us a ClickUp
+// user ("Gibson Wan"). We guess by name, then let the user correct it — a guess is a
+// convenience, their explicit choice is the source of truth and is remembered.
+async function setupDeveloperPicker() {
+  state.devOptions = await fetchDeveloperOptions(state.teamId, state.token);
+
+  const saved = localStorage.getItem(DEV_KEY);
+  const valid = saved && state.devOptions.some(o => o.id === saved);
+  state.devOptionId = valid ? saved : guessDeveloperOption(state.user, state.devOptions);
+
+  $devSelect.innerHTML =
+    `<option value="">— not in the list —</option>` +
+    state.devOptions
+      .map(o => `<option value="${escHtml(o.id)}" ${o.id === state.devOptionId ? 'selected' : ''}>${escHtml(o.label)}</option>`)
+      .join('');
+  $devWrap.classList.remove('hidden');
+
+  if (state.devOptionId) localStorage.setItem(DEV_KEY, state.devOptionId);
+}
+
+// Match the roster label against the ClickUp username. Only accept an unambiguous
+// single match — two developers sharing a first name must pick manually.
+function guessDeveloperOption(user, options) {
+  const username = (user.username || '').trim().toLowerCase();
+  if (!username) return null;
+
+  const hits = options.filter(o => {
+    const label = o.label.trim().toLowerCase();
+    return username === label || username.startsWith(label + ' ');
+  });
+  return hits.length === 1 ? hits[0].id : null;
+}
+
+// Prefer the live field definition so a developer added in ClickUp appears without a
+// code change. The workspace-level endpoint isn't in every API version, so fall back
+// to the roster baked in above rather than failing the whole connect.
+async function fetchDeveloperOptions(teamId, token) {
+  try {
+    const data  = await cuGet(`/team/${teamId}/field`, token);
+    const field = (data.fields || []).find(f => f.id === DEV_FIELD_ID);
+    const opts  = field && field.type_config && field.type_config.options;
+    if (opts && opts.length) {
+      return opts.map(o => ({ id: o.id, label: o.label || o.name || '' }));
+    }
+  } catch (_) { /* endpoint unavailable — use the fallback roster */ }
+  return DEV_OPTIONS_FALLBACK;
+}
+
+function handleDeveloperChange() {
+  state.devOptionId = $devSelect.value || null;
+  if (state.devOptionId) localStorage.setItem(DEV_KEY, state.devOptionId);
+  else localStorage.removeItem(DEV_KEY);
+  updateDevScanAvailability();
+}
+
 // ---------- Fetch ----------
 async function handleFetch() {
   if (!state.token) return;
@@ -186,9 +299,10 @@ async function handleFetch() {
     // Phase 1: find tasks assigned to me, active in this range, with no time logged.
     await loadUntracked(startMs, endMs, entries);
 
-    // Deep scan is available once a range is fetched (it reuses these entries + dates).
+    // The Developer(s) scan is available once a range is fetched (it reuses these
+    // entries + dates), provided we know which roster name is this user.
     $secDeepscan.classList.remove('disabled');
-    $btnDeepscan.disabled = false;
+    updateDevScanAvailability();
 
     hideStatus();
 
@@ -467,12 +581,19 @@ async function onUntrackedClick(e) {
   }
 }
 
-// ---------- Deep scan: handed-off tasks (watcher/creator based) ----------
-const sleep = ms => new Promise(r => setTimeout(r, ms));
-const DEEPSCAN_CAP = 150; // max per-task involvement lookups per scan
+// ---------- Developer(s) scan: tasks you worked but aren't assigned to ----------
+// Replaces the old watcher/creator deep scan. Watcher was inherited by every copy of a
+// task template, so it produced heavy false positives. The Developer(s) field is set by
+// hand and filters server-side, so this is one query with no per-task lookups — no cap,
+// no concurrency pool, no coverage gap.
 
-async function deepScan() {
+async function developerScan() {
   if (!state.token) return;
+  if (!state.devOptionId) {
+    showStatus('Pick your name under Developer(s) in step 1 first.', 'error');
+    setTimeout(hideStatus, 4000);
+    return;
+  }
 
   const startMs = new Date($dateFrom.value + 'T00:00:00').getTime();
   const endMs   = new Date($dateTo.value   + 'T23:59:59').getTime();
@@ -480,36 +601,23 @@ async function deepScan() {
 
   $btnDeepscan.disabled = true;
   try {
-    showStatus('Deep scan: loading spaces...', 'loading');
-    const spaceIds = await fetchSpaces(state.teamId, state.token);
+    showStatus('Scanning tasks tagged with your name...', 'loading');
+    const tasks = await fetchDeveloperTasks(state.teamId, state.token, state.devOptionId, startMs, endMs);
 
-    showStatus(`Deep scan: fetching tasks across ${spaceIds.length} space${spaceIds.length !== 1 ? 's' : ''}...`, 'loading');
-    const tasks = await fetchSpaceTasks(state.teamId, state.token, spaceIds, startMs, endMs);
-
-    // Candidates: active in range, not already mine by assignment, and no time logged by me.
-    const loggedTaskIds = new Set(state.entries.map(en => (en.raw && en.raw.task) ? en.raw.task.id : null).filter(Boolean));
+    // Drop what's already covered: tasks assigned to me (the Untracked card handles
+    // those) and tasks I've already logged time against in this range.
+    const loggedTaskIds = new Set(
+      state.entries.map(en => (en.raw && en.raw.task) ? en.raw.task.id : null).filter(Boolean)
+    );
     const seen = new Set();
-    const candidates = tasks.filter(t => {
+    const flagged = tasks.filter(t => {
       if (seen.has(t.id)) return false;
       seen.add(t.id);
       if (loggedTaskIds.has(t.id)) return false;
       const assigneeIds = (t.assignees || []).map(a => String(a.id));
-      if (assigneeIds.includes(userId)) return false; // already covered by the Untracked card
+      if (assigneeIds.includes(userId)) return false;
       return true;
     });
-
-    let flagged, checked, capped = 0;
-
-    // Fast path: if the bulk list ever includes watchers, no per-task calls needed.
-    if (candidates.length > 0 && Array.isArray(candidates[0].watchers)) {
-      flagged = candidates.filter(t => isMine(t, userId));
-      checked = candidates.length;
-    } else {
-      const res = await checkInvolvement(candidates, userId, state.token, DEEPSCAN_CAP);
-      flagged = res.flagged;
-      checked = res.checked;
-      capped  = res.capped;
-    }
 
     flagged.sort((a, b) => {
       const da = a.due_date ? parseInt(a.due_date) : Infinity;
@@ -519,89 +627,55 @@ async function deepScan() {
     });
 
     state.deepscan = flagged;
-    renderDeepScan(flagged, { scanned: tasks.length, candidates: candidates.length, checked, capped });
+    renderDeepScan(flagged, { scanned: tasks.length });
     hideStatus();
-    showStatus(`Deep scan complete — ${flagged.length} task${flagged.length !== 1 ? 's' : ''} found.`, 'success');
+    showStatus(`Scan complete — ${flagged.length} task${flagged.length !== 1 ? 's' : ''} found.`, 'success');
     setTimeout(hideStatus, 3500);
   } catch (err) {
-    showStatus(err.message || 'Deep scan failed.', 'error');
+    showStatus(err.message || 'Developer scan failed.', 'error');
   } finally {
     $btnDeepscan.disabled = false;
   }
 }
 
-function isMine(fullTask, userId) {
-  const watchers = fullTask.watchers || [];
-  const isWatcher = watchers.some(w => String(w.id) === userId);
-  const isCreator = fullTask.creator && String(fullTask.creator.id) === userId;
-  return isWatcher || isCreator;
-}
-
-async function fetchSpaces(teamId, token) {
-  const data = await cuGet(`/team/${teamId}/space?archived=false`, token);
-  return (data.spaces || []).map(s => s.id);
-}
-
-async function fetchSpaceTasks(teamId, token, spaceIds, startMs, endMs) {
-  const spaceParams = spaceIds.map(id => `space_ids%5B%5D=${encodeURIComponent(id)}`).join('&');
-  const base = `${spaceParams}&subtasks=true&include_closed=true`;
+// One workspace-wide query: ClickUp filters the labels field server-side, so we never
+// enumerate spaces or fetch tasks individually.
+async function fetchDeveloperTasks(teamId, token, optionId, startMs, endMs) {
+  const filter = JSON.stringify([
+    { field_id: DEV_FIELD_ID, operator: 'ANY', value: [optionId] },
+  ]);
+  const base = `custom_fields=${encodeURIComponent(filter)}&subtasks=true&include_closed=true`;
   return fetchInRange(teamId, token, base, startMs, endMs);
 }
 
-// Per-task involvement check with a concurrency pool, cap, and 429 backoff.
-async function checkInvolvement(candidates, userId, token, cap) {
-  const toCheck = candidates.slice(0, cap);
-  const capped  = candidates.length - toCheck.length;
-  const flagged = [];
-  let checked = 0;
-  let idx = 0;
-  const POOL = 4;
-
-  async function worker() {
-    while (idx < toCheck.length) {
-      const t = toCheck[idx++];
-      try {
-        const full = await getTaskWithRetry(t.id, token);
-        checked++;
-        if (isMine(full, userId)) {
-          flagged.push({ ...t, assignees: full.assignees || t.assignees, creator: full.creator });
-        }
-      } catch (_) { /* skip tasks that error out */ }
-      if (checked % 10 === 0) {
-        showStatus(`Deep scan: checked ${checked}/${toCheck.length} tasks...`, 'loading');
-      }
-    }
-  }
-
-  await Promise.all(Array.from({ length: POOL }, worker));
-  return { flagged, checked, capped };
+// The field only carries *who*, never *when* — so a range starting before the team
+// began filling it in would come back empty and read as "all clear". Say so instead.
+function devFieldCoversRange() {
+  return $dateFrom.value >= DEV_FIELD_START;
 }
 
-async function getTaskWithRetry(taskId, token, tries = 3) {
-  for (let i = 0; i < tries; i++) {
-    try {
-      return await cuGet(`/task/${taskId}`, token);
-    } catch (e) {
-      if (/\b429\b/.test(e.message) && i < tries - 1) { await sleep(2500); continue; }
-      throw e;
-    }
-  }
+function updateDevScanAvailability() {
+  const ready = Boolean(state.token && state.entries.length >= 0 && state.devOptionId);
+  $btnDeepscan.disabled = !ready || $secDeepscan.classList.contains('disabled');
 }
 
 function renderDeepScan(list, stats) {
   $deepscanCount.textContent = list.length ? `${list.length} found` : 'None found';
 
   let html = '';
+
+  if (!devFieldCoversRange()) {
+    html += `<div class="deepscan-stats">⚠ Developer(s) tagging starts ${escHtml(DEV_FIELD_START)}. ` +
+            `Tasks before then mostly have the field empty, so this scan can't see them — ` +
+            `for earlier dates rely on the assigned-task check above.</div>`;
+  }
+
   if (stats) {
-    let note = `Scanned ${stats.scanned} tasks · ${stats.candidates} candidates · checked ${stats.checked} for your involvement`;
-    if (stats.capped > 0) {
-      note += ` · ⚠ ${stats.capped} not checked (scan cap reached — narrow the date range or it won't cover everything)`;
-    }
-    html += `<div class="deepscan-stats">${escHtml(note)}</div>`;
+    html += `<div class="deepscan-stats">${escHtml(`Scanned ${stats.scanned} tasks tagged with your name`)}</div>`;
   }
 
   if (list.length === 0) {
-    html += `<div class="untracked-empty">No handed-off tasks you're involved in are missing time in this range.</div>`;
+    html += `<div class="untracked-empty">No tasks tagged with your name are missing time in this range.</div>`;
   } else {
     const defaultDate = $dateTo.value;
     html += list.map(t => taskItemHTML(t, defaultDate, { showAssignee: true })).join('');
