@@ -1111,18 +1111,18 @@ function csvCell(val) {
   return val;
 }
 
-// Project codes are identifiers, not quantities, but Excel and Sheets coerce anything
-// all-digits into a number on open: 333660996315 renders as 3.3366E+11, and 0000 / 0001
-// lose their leading zeros and become 0 / 1. Wrapping the value as ="0001" forces the
-// cell to text in both, and the code survives intact.
+// Project codes are identifiers, not quantities, but spreadsheets coerce anything
+// all-digits into a number: 333660996315 becomes 3.3366E+11, and 0000 / 0004 lose their
+// leading zeros to become 0 / 4. Prefixing with an apostrophe is the text marker both
+// Google Sheets and Excel understand, and — unlike the ="0000" form — it survives a
+// **copy-paste** into a sheet, not just a file import. Pasting is the actual workflow.
 //
-// Only digit-only values get this treatment — a code like "0000-ADMIN" is already safe
-// as text, and the narrower rule keeps `=` out of cells that don't need it.
+// Only digit-only values get it: "0000-ADMIN" is already safe as text, and the narrow
+// rule avoids marking cells that don't need it.
 function csvCodeCell(val) {
   const s = String(val);
   if (!/^\d+$/.test(s)) return csvCell(s);
-  const formula = '="' + s + '"';                        // the cell content Excel must see
-  return '"' + formula.replace(/"/g, '""') + '"';        // ...encoded as one CSV field
+  return csvCell("'" + s);
 }
 
 // ---------- API helpers ----------
