@@ -74,7 +74,7 @@ The app was GET-only; it can now write, closing the loop where you find the gap.
 
 ### Still optional (not built)
 - Start/stop a live timer; edit or delete existing entries.
-- The write path hasn't been exercised against live ClickUp yet — verify one entry before relying on it.
+- ✅ Write path verified live 2026-10-01: logging 2h 30m from the app appeared on the task in ClickUp.
 
 ## Phase 2.5 — Deep scan for handed-off tasks ⚠ (shipped, signal broken — being replaced)
 Catches the gap Phase 1 can't: tasks you worked but **reassigned away** (no longer your assignee).
@@ -158,9 +158,8 @@ identifies the team, not the person).
 - Cutover is `DEV_FIELD_START = '2026-08-01'` in `app.js` — the team-wide rollout is September 2026, but
   Gibson was already tagging through August, so August is real data and shouldn't warn. Ranges starting earlier still run, but the
   card shows a warning that the field was not yet in use — so an empty result never reads as "all clear".
-- **Still not verified against live ClickUp**: the `custom_fields` filter parameter is built to API spec
-  and unit-tested locally, but no real scan has been run. Verify with one September range before relying
-  on it. Same outstanding caveat as the write path.
+- ✅ **Verified live 2026-10-01**: a September scan surfaced a reassigned task (`Develop web feature >
+  Step-by-Step Product Flow`, now on Alvin Chong / Shawn Lam), so the `custom_fields` filter works.
 
 ### Token persistence (shipped alongside)
 The token moved from `sessionStorage` to `localStorage`, so it survives closing the tab — the team pastes
@@ -309,6 +308,58 @@ Verified afterwards with a full regression pass (dates, code resolution, identit
 durations, pooling/retry, sheet-safe codes) plus a stubbed end-to-end run: connect → fetch → untracked →
 dismiss → log → restore → copy.
 
+## Phase 2.13 — NEXT UP: merge steps 04 + 05, add Refresh (planned 2026-10-01, not built)
+
+Agreed with Gibson; resume here. Both depend on nothing outstanding — Add time and the Developer(s)
+scan were verified live on 2026-10-01.
+
+### A. Merge "Untracked Tasks" (04) and "Worked but Not Assigned" (05) into one card
+**Why:** both answer the same question — *what did I work in this range without logging time?* —
+and differ only in how a task counts as "mine" (current assignee vs `Developer(s)` tag). They already
+share `fetchInRange`, the logged-time join, dismissals and `taskItemHTML`. Step 05 was a separate,
+button-triggered card only because the old watcher scan cost up to 150 per-task requests; the
+Developer(s) version is two list calls, same as 04. As two cards, a user can clear 04, never press
+"Find my tasks", and think they're done.
+
+**Changes:**
+- `index.html`: one card, step 04, titled **"Missing Time"**. Delete `section-deepscan`, `btn-deepscan`,
+  `deepscan-list`, `deepscan-count`. Rewrite the description to cover both sources.
+- `app.js` `loadUntracked`: run `fetchAssignedTasks` and `fetchDeveloperTasks` **in parallel with
+  `Promise.allSettled`**, union by task id, then the existing filters (logged time, dismissed). Record
+  per task which source(s) matched. Sort as now (due date, then name).
+- **Independent failure:** if the Developer(s) query fails, still render the assigned list plus a small
+  "Couldn't check Developer(s): …" note — and vice versa.
+- **No developer picked** (`!state.devOptionId`): skip that query, show the assigned list plus a hint
+  "Pick your name in step 1 to include Developer(s) tasks."
+- **Cutover:** the `DEV_FIELD_START` warning moves inside the merged card (only when range starts before it).
+- `taskItemHTML`: source badge per row — **Assigned**, **Developer(s)**, or both. Keep the "Now: X" pill
+  for rows where the user is no longer an assignee (replaces the `showAssignee` option).
+- Delete: `developerScan`, `renderDeepScan`, `updateDevScanAvailability`, `$btnDeepscan`, `$secDeepscan`,
+  `$deepscanList`, `$deepscanCount`, `state.deepscan`, `state.deepscanStats`, and step 05's
+  "drop tasks assigned to me" filter (union handles overlap). Simplify `onUntrackedClick` (dismiss and
+  log no longer touch a second list) and `handleDeveloperChange` (re-run the card if a range is loaded).
+- `style.css`: one pill style for the source badge.
+- Net: less code. Request cost per fetch goes ~2 → ~4 list calls — fine under ~100 req/min per token.
+
+### B. Refresh button on step 03 (Preview & Export)
+**Why:** after editing time directly in ClickUp, the only way to see it is scrolling back up to step 02
+and pressing **Fetch Time Entries**.
+
+- Add a **Refresh** button (secondary style, circular-arrow icon) to the step 03 card header, right side.
+- It re-runs `handleFetch()` for the **range that was last fetched** — store `state.lastRange
+  {from,to}` in `handleFetch`. If the date inputs were edited but not fetched, Refresh must not silently
+  switch ranges.
+- Since `handleFetch` also rebuilds the merged Missing Time card, one click updates everything.
+- Show **"Updated HH:MM"** next to it so it's obvious the refresh happened; spin/disable the button
+  while loading (`$btnFetch` and Refresh share the same disabled state).
+- Hidden/disabled until the first fetch.
+- Optional, not agreed: auto-refresh when the tab regains focus. Ask before building.
+
+### Verify after building
+Stubbed run: connect → fetch → merged list shows both sources with badges, a task matching both appears
+once → dismiss → log (row clears, totals update) → edit an entry in ClickUp → Refresh → table updates.
+Also: no developer picked, a pre-cutover range, and a forced Developer(s) query failure.
+
 ## Phase 3 — Polish — *later*
 - Persist selected workspace + last date range.
 - Fold the untracked count into the summary grid.
@@ -372,8 +423,7 @@ Other IDs: workspace/team `3300027` (MediaPlus Digital), Gibson `43791299`.
    *destination* of time, so never "forgotten").
 
 # Also outstanding
-- **Live verification still pending** for the write path (Add time) and the deep scan — built to API
-  spec but not yet exercised against real ClickUp.
+- ~~Live verification pending for Add time and the Developer(s) scan~~ — **both verified 2026-10-01**.
 - **Security:** client credentials (Shopify / Shopee / Lazada logins) are sitting in plaintext in task
   descriptions, e.g. task `86exyez51`. A `Credentials` text custom field also exists at space level.
   Recommend moving these to a password manager.
