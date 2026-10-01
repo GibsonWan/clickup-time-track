@@ -3,7 +3,7 @@ const API = 'https://api.clickup.com/api/v2';
 const TOKEN_KEY = 'cu_token';
 const DEV_KEY   = 'cu_developer_option'; // which Developer(s) label is "me"
 const CODE_KEY    = 'cu_code_overrides'; // task id -> hand-entered project code
-const DISMISS_KEY = 'cu_dismissed';      // task ids hidden from the two task lists
+const DISMISS_KEY = 'cu_dismissed';      // task ids hidden from the Missing Time list
 
 // ---------- Manual project codes ----------
 // Some tasks carry no code anywhere — not in the list name, not in the title. Rather
@@ -47,14 +47,13 @@ async function restoreAllDismissed() {
   state.dismissed.clear();
   persistDismissed();
   renderUntracked();
-  if (state.deepscanStats) renderDeepScan(state.deepscan, state.deepscanStats);
   showStatus('Restored dismissed tasks — refreshing...', 'loading');
-  if (state.token) await handleFetch();
+  if (state.token) await handleFetch(state.lastRange);
   showStatus('Restored all dismissed tasks.', 'success');
   setTimeout(hideStatus, 3000);
 }
 
-// Shown under either list so dismissing is never a one-way door.
+// Shown under the Missing Time list so dismissing is never a one-way door.
 function dismissedFooterHTML() {
   const n = state.dismissed.size;
   if (!n) return '';
@@ -103,12 +102,13 @@ let state = {
   teamId: null,
   entries: [],
   untracked: [],
-  deepscan: [],
+  untrackedNotes: [],   // messages shown above the Missing Time list
+  untrackedPartial: false, // true when one of the two queries failed, so the list is incomplete
+  lastRange: null,      // {from, to, startMs, endMs} of the last successful fetch
   devOptions: DEV_OPTIONS_FALLBACK,
   devOptionId: null, // the option representing the logged-in user
   codeOverrides: {},
   dismissed: new Set(),
-  deepscanStats: null,
 };
 
 // ---------- DOM refs ----------
@@ -131,11 +131,9 @@ const $btnCopy     = document.getElementById('btn-copy');
 const $statusBar   = document.getElementById('status-bar');
 const $untrackedList  = document.getElementById('untracked-list');
 const $untrackedCount = document.getElementById('untracked-count');
-const $secDeepscan    = document.getElementById('section-deepscan');
-const $btnDeepscan    = document.getElementById('btn-deepscan');
-const $deepscanList   = document.getElementById('deepscan-list');
-const $deepscanCount  = document.getElementById('deepscan-count');
-const $devWrap        = document.getElementById('developer-wrap');
+const $btnRefresh     = document.getElementById('btn-refresh');
+const $refreshStamp   = document.getElementById('refresh-stamp');
+const $devWrap       = document.getElementById('developer-wrap');
 const $devSelect      = document.getElementById('developer-select');
 const $btnForget      = document.getElementById('btn-forget');
 
@@ -189,7 +187,10 @@ function bindEvents() {
   $btnForget.addEventListener('click', handleForget);
   $devSelect.addEventListener('change', handleDeveloperChange);
 
-  $btnFetch.addEventListener('click', handleFetch);
+  // Arrow wrappers: handleFetch takes an optional range, and a bare listener would
+  // receive the click event in that slot.
+  $btnFetch.addEventListener('click', () => handleFetch());
+  $btnRefresh.addEventListener('click', () => handleFetch(state.lastRange));
 
   document.querySelectorAll('[data-range]').forEach(btn => {
     btn.addEventListener('click', () => applyQuickRange(btn.dataset.range));
@@ -204,8 +205,6 @@ function bindEvents() {
   $wsSelect.addEventListener('change', handleWorkspaceChange);
   $untrackedList.addEventListener('click', onUntrackedClick);
   $tableBody.addEventListener('click', onTableClick);
-  $btnDeepscan.addEventListener('click', developerScan);
-  $deepscanList.addEventListener('click', onUntrackedClick);
 }
 
 function applyQuickRange(range) {
@@ -288,22 +287,21 @@ async function handleWorkspaceChange() {
   state.teamId        = $wsSelect.value;
   state.entries       = [];
   state.untracked     = [];
-  state.deepscan      = [];
-  state.deepscanStats = null;
+  state.untrackedNotes = [];
+  state.untrackedPartial = false;
+  state.lastRange     = null;
 
   renderTable([]);
   $untrackedCount.textContent = '';
   $untrackedList.innerHTML    = '';
-  $deepscanCount.textContent  = '';
-  $deepscanList.innerHTML     = '';
   $secExport.classList.add('disabled');
   $secUntracked.classList.add('disabled');
-  $secDeepscan.classList.add('disabled');
-  $btnExport.disabled = true;
-  $btnCopy.disabled   = true;
+  $btnExport.disabled  = true;
+  $btnCopy.disabled    = true;
+  $btnRefresh.disabled = true;
+  $refreshStamp.textContent = '';
 
   await setupDeveloperPicker();
-  updateDevScanAvailability();
 }
 
 // Clears the saved token — for shared machines, or switching accounts.
@@ -384,11 +382,16 @@ async function fetchDeveloperOptions(teamId, token) {
   return DEV_OPTIONS_FALLBACK;
 }
 
-function handleDeveloperChange() {
+async function handleDeveloperChange() {
   state.devOptionId = $devSelect.value || null;
   if (state.devOptionId) localStorage.setItem(DEV_KEY, state.devOptionId);
   else localStorage.removeItem(DEV_KEY);
-  updateDevScanAvailability();
+
+  // The Missing Time card depends on this choice, so re-run it for the range on screen.
+  if (state.lastRange) {
+    await loadUntracked(state.lastRange.startMs, state.lastRange.endMs, state.entries);
+    hideStatus();
+  }
 }
 
 // ---------- Request throttling ----------
@@ -432,30 +435,35 @@ async function cuGetWithRetry(path, token, tries = 3) {
 }
 
 // ---------- Fetch ----------
-async function handleFetch() {
+// `range` ({from, to} as YYYY-MM-DD) re-fetches a specific range — Refresh passes the
+// last fetched one so edited-but-unfetched date inputs can't silently switch ranges.
+// Without it, the date inputs are used.
+async function handleFetch(range) {
   if (!state.token) return;
 
-  const startMs = new Date($dateFrom.value + 'T00:00:00').getTime();
-  const endMs   = new Date($dateTo.value   + 'T23:59:59').getTime();
+  const from = range ? range.from : $dateFrom.value;
+  const to   = range ? range.to   : $dateTo.value;
+  const startMs = new Date(from + 'T00:00:00').getTime();
+  const endMs   = new Date(to   + 'T23:59:59').getTime();
 
   showStatus('Fetching time entries...', 'loading');
   $btnFetch.disabled = true;
+  $btnRefresh.disabled = true;
+  $btnRefresh.classList.add('is-loading');
 
   try {
     const entries = await fetchAllTimeEntries(state.teamId, state.token, startMs, endMs, state.user.id);
-    state.entries = entries;
+    state.entries   = entries;
+    state.lastRange = { from, to, startMs, endMs };
     renderTable(entries);
     $secExport.classList.remove('disabled');
     $btnExport.disabled = entries.length === 0;
     $btnCopy.disabled   = entries.length === 0;
+    $refreshStamp.textContent =
+      'Updated ' + new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
-    // Phase 1: find tasks assigned to me, active in this range, with no time logged.
+    // Tasks I worked in this range (assigned or tagged Developer(s)) with no time logged.
     await loadUntracked(startMs, endMs, entries);
-
-    // The Developer(s) scan is available once a range is fetched (it reuses these
-    // entries + dates), provided we know which roster name is this user.
-    $secDeepscan.classList.remove('disabled');
-    updateDevScanAvailability();
 
     hideStatus();
 
@@ -467,6 +475,8 @@ async function handleFetch() {
     showStatus(err.message || 'Failed to fetch entries.', 'error');
   } finally {
     $btnFetch.disabled = false;
+    $btnRefresh.disabled = !state.lastRange;
+    $btnRefresh.classList.remove('is-loading');
     validateDates();
   }
 }
@@ -553,46 +563,73 @@ function parseEntry(e, taskCache = {}) {
   return { date, sortDate, projectCode, projectInfo, taskName, taskId, hours, folderName, raw: e };
 }
 
-// ---------- Untracked tasks (Phase 1) ----------
+// ---------- Missing Time: worked in range, nothing logged ----------
+// A task counts as "mine" two ways: I'm its current assignee, or I'm tagged in the
+// Developer(s) field (which survives reassignment). Both are one cheap list query, so
+// they run together and are unioned by task id.
+let untrackedSeq = 0;
+
 async function loadUntracked(startMs, endMs, entries) {
   $secUntracked.classList.remove('disabled');
+  const seq = ++untrackedSeq;
+  const wantDev = Boolean(state.devOptionId);
 
-  try {
-    showStatus('Checking for untracked tasks...', 'loading');
-    const tasks = await fetchAssignedTasks(state.teamId, state.token, state.user.id, startMs, endMs);
+  showStatus('Checking for missing time...', 'loading');
+  // allSettled so one query failing still leaves the other list usable.
+  const [assigned, developer] = await Promise.allSettled([
+    fetchAssignedTasks(state.teamId, state.token, state.user.id, startMs, endMs),
+    wantDev
+      ? fetchDeveloperTasks(state.teamId, state.token, state.devOptionId, startMs, endMs)
+      : Promise.resolve([]),
+  ]);
+  if (seq !== untrackedSeq) return; // superseded by a newer run (e.g. developer changed)
 
-    // Hours logged per task id within this range (from the entries we already have).
-    const loggedByTask = {};
-    entries.forEach(en => {
-      const id = en.raw && en.raw.task ? en.raw.task.id : null;
-      if (id) loggedByTask[id] = (loggedByTask[id] || 0) + en.hours;
-    });
-
-    // Untracked = assigned & active in range, but no time logged. De-dupe by id.
-    const seen = new Set();
-    const untracked = tasks.filter(t => {
-      if (seen.has(t.id)) return false;
-      seen.add(t.id);
-      if (state.dismissed.has(t.id)) return false;
-      return !(loggedByTask[t.id] > 0);
-    });
-
-    // Due-dated first (earliest due first), then the rest by name.
-    untracked.sort((a, b) => {
-      const da = a.due_date ? parseInt(a.due_date) : Infinity;
-      const db = b.due_date ? parseInt(b.due_date) : Infinity;
-      if (da !== db) return da - db;
-      return (a.name || '').localeCompare(b.name || '');
-    });
-
-    state.untracked = untracked;
-    renderUntracked();
-  } catch (err) {
-    state.untracked = [];
-    $untrackedCount.textContent = '';
-    $untrackedList.innerHTML =
-      `<div class="untracked-note">Couldn't load assigned tasks: ${escHtml(err.message || 'request failed')}</div>`;
+  const why = r => (r.reason && r.reason.message) || 'request failed';
+  const notes = [];
+  if (assigned.status === 'rejected')  notes.push(`Couldn't check assigned tasks: ${why(assigned)}`);
+  if (developer.status === 'rejected') notes.push(`Couldn't check Developer(s): ${why(developer)}`);
+  if (!wantDev) {
+    notes.push('Pick your name in step 1 to include Developer(s) tasks.');
+  } else if (!devFieldCoversRange()) {
+    notes.push(`⚠ Developer(s) tagging starts ${DEV_FIELD_START}. Tasks before then mostly have the ` +
+      `field empty, so it can't see them — for earlier dates only assigned tasks are checked.`);
   }
+
+  // Union by id, remembering which query matched each task.
+  const byId = new Map();
+  const merge = (res, flag) => {
+    if (res.status !== 'fulfilled') return;
+    for (const t of res.value) {
+      let m = byId.get(t.id);
+      if (!m) { m = t; byId.set(t.id, m); }
+      m[flag] = true;
+    }
+  };
+  merge(assigned,  '_assigned');
+  merge(developer, '_developer');
+
+  // Hours logged per task id within this range (from the entries we already have).
+  const loggedByTask = {};
+  entries.forEach(en => {
+    const id = en.raw && en.raw.task ? en.raw.task.id : null;
+    if (id) loggedByTask[id] = (loggedByTask[id] || 0) + en.hours;
+  });
+
+  const untracked = [...byId.values()].filter(t =>
+    !state.dismissed.has(t.id) && !(loggedByTask[t.id] > 0));
+
+  // Due-dated first (earliest due first), then the rest by name.
+  untracked.sort((a, b) => {
+    const da = a.due_date ? parseInt(a.due_date) : Infinity;
+    const db = b.due_date ? parseInt(b.due_date) : Infinity;
+    if (da !== db) return da - db;
+    return (a.name || '').localeCompare(b.name || '');
+  });
+
+  state.untracked        = untracked;
+  state.untrackedNotes   = notes;
+  state.untrackedPartial = assigned.status === 'rejected' || developer.status === 'rejected';
+  renderUntracked();
 }
 
 async function fetchAssignedTasks(teamId, token, userId, startMs, endMs) {
@@ -633,21 +670,31 @@ function dedupeById(list) {
 
 function renderUntracked() {
   const list = state.untracked;
+  const notes = state.untrackedNotes
+    .map(n => `<div class="mt-note">${escHtml(n)}</div>`).join('');
 
+  // An empty list from a partly failed check isn't "all clear" — the notes say why.
   $untrackedCount.textContent = list.length
     ? `${list.length} task${list.length !== 1 ? 's' : ''}`
-    : 'All clear';
+    : (state.untrackedPartial ? '' : 'All clear');
 
   if (list.length === 0) {
-    $untrackedList.innerHTML =
-      `<div class="untracked-empty">Every task assigned to you and active in this range has time logged. 🎉</div>`
+    $untrackedList.innerHTML = notes
+      + (state.untrackedPartial ? '' :
+        `<div class="untracked-empty">Every task assigned to you or tagged with your name and active in this range has time logged. 🎉</div>`)
       + dismissedFooterHTML();
     return;
   }
 
-  $untrackedList.innerHTML =
-    list.map(t => taskItemHTML(t, defaultLogDate(), { showAssignee: false })).join('')
+  $untrackedList.innerHTML = notes
+    + list.map(t => taskItemHTML(t, defaultLogDate())).join('')
     + dismissedFooterHTML();
+}
+
+// The range on screen: the last fetched one, so edited-but-unfetched date inputs
+// don't change what the card below is judged against.
+function activeRange() {
+  return state.lastRange || { from: $dateFrom.value, to: $dateTo.value };
 }
 
 // The date an Add time form starts on. It has to land inside the fetched range or the
@@ -656,16 +703,14 @@ function renderUntracked() {
 // date that hasn't happened. Today when it's in range, otherwise the nearest edge.
 function defaultLogDate() {
   const today = fmt(new Date());
-  const from  = $dateFrom.value;
-  const to    = $dateTo.value;
+  const { from, to } = activeRange();
   if (from && today < from) return from;
   if (to   && today > to)   return to;
   return today;
 }
 
-// Shared markup for a task row with an inline "Add time" form. Used by both the
-// assigned-untracked list and the deep-scan list.
-function taskItemHTML(t, defaultDate, opts = {}) {
+// Markup for a Missing Time row with an inline "Add time" form.
+function taskItemHTML(t, defaultDate) {
   const listObj  = t.list || {};
   const name     = t.name || '(untitled task)';
   const { projectCode } = parseProject(listObj.name || '', listObj.id || '', '', '', name);
@@ -674,11 +719,16 @@ function taskItemHTML(t, defaultDate, opts = {}) {
   const url      = t.url || `https://app.clickup.com/t/${t.id}`;
   const assignees = (t.assignees || []).map(a => a.username).filter(Boolean).join(', ');
 
+  // Reassigned away from me: show who has it now (only reachable via Developer(s)).
+  const mine = (t.assignees || []).some(a => String(a.id) === String(state.user.id));
+
   const pills = [
+    t._assigned  ? `<span class="u-pill u-src">Assigned</span>` : '',
+    t._developer ? `<span class="u-pill u-src">Developer(s)</span>` : '',
     projectCode !== 'N/A' ? `<span class="u-pill">${escHtml(projectCode)}</span>` : '',
     status ? `<span class="u-pill">${escHtml(status)}</span>` : '',
     dueLabel ? `<span class="u-pill u-due">Due ${escHtml(dueLabel)}</span>` : '',
-    (opts.showAssignee && assignees) ? `<span class="u-pill u-assignee">Now: ${escHtml(assignees)}</span>` : '',
+    (!mine && assignees) ? `<span class="u-pill u-assignee">Now: ${escHtml(assignees)}</span>` : '',
   ].join('');
 
   return `
@@ -719,12 +769,7 @@ async function onUntrackedClick(e) {
     const name = item.dataset.taskName || 'task';
     dismissTask(id);
     state.untracked = state.untracked.filter(t => t.id !== id);
-    state.deepscan  = state.deepscan.filter(t => t.id !== id);
-    // Re-render both so the "N dismissed · Restore all" line stays accurate in each.
-    // Only touch the scan list if a scan has actually run, or we'd render its results
-    // panel over an untouched card.
     renderUntracked();
-    if (state.deepscanStats) renderDeepScan(state.deepscan, state.deepscanStats);
     showStatus(`Dismissed "${name}".`, 'success');
     setTimeout(hideStatus, 3000);
     return;
@@ -771,11 +816,10 @@ async function onUntrackedClick(e) {
 
   try {
     await addTimeEntry(taskId, dateStr, totalMinutes);
-    // Remove the row immediately (covers the deep-scan list, which handleFetch won't rebuild)...
-    state.deepscan = state.deepscan.filter(t => t.id !== taskId);
+    // Remove the row immediately, then refresh timesheet + Missing Time from source of
+    // truth (same range as on screen) so totals stay correct.
     item.remove();
-    // ...then refresh timesheet + assigned-untracked list from source of truth so totals stay correct.
-    await handleFetch();
+    await handleFetch(state.lastRange);
     // Confirm *after* the refresh: handleFetch drives the status bar itself, so a message
     // shown before it is overwritten within a frame and the write appears to go unconfirmed.
     showStatus(`Logged ${label} to "${name}".`, 'success');
@@ -786,64 +830,10 @@ async function onUntrackedClick(e) {
   }
 }
 
-// ---------- Developer(s) scan: tasks you worked but aren't assigned to ----------
-// Replaces the old watcher/creator deep scan. Watcher was inherited by every copy of a
-// task template, so it produced heavy false positives. The Developer(s) field is set by
-// hand and filters server-side, so this is one query with no per-task lookups — no cap,
-// no concurrency pool, no coverage gap.
-
-async function developerScan() {
-  if (!state.token) return;
-  if (!state.devOptionId) {
-    showStatus('Pick your name under Developer(s) in step 1 first.', 'error');
-    setTimeout(hideStatus, 4000);
-    return;
-  }
-
-  const startMs = new Date($dateFrom.value + 'T00:00:00').getTime();
-  const endMs   = new Date($dateTo.value   + 'T23:59:59').getTime();
-  const userId  = String(state.user.id);
-
-  $btnDeepscan.disabled = true;
-  try {
-    showStatus('Scanning tasks tagged with your name...', 'loading');
-    const tasks = await fetchDeveloperTasks(state.teamId, state.token, state.devOptionId, startMs, endMs);
-
-    // Drop what's already covered: tasks assigned to me (the Untracked card handles
-    // those) and tasks I've already logged time against in this range.
-    const loggedTaskIds = new Set(
-      state.entries.map(en => (en.raw && en.raw.task) ? en.raw.task.id : null).filter(Boolean)
-    );
-    const seen = new Set();
-    const flagged = tasks.filter(t => {
-      if (seen.has(t.id)) return false;
-      seen.add(t.id);
-      if (state.dismissed.has(t.id)) return false;
-      if (loggedTaskIds.has(t.id)) return false;
-      const assigneeIds = (t.assignees || []).map(a => String(a.id));
-      if (assigneeIds.includes(userId)) return false;
-      return true;
-    });
-
-    flagged.sort((a, b) => {
-      const da = a.due_date ? parseInt(a.due_date) : Infinity;
-      const db = b.due_date ? parseInt(b.due_date) : Infinity;
-      if (da !== db) return da - db;
-      return (a.name || '').localeCompare(b.name || '');
-    });
-
-    state.deepscan      = flagged;
-    state.deepscanStats = { scanned: tasks.length };
-    renderDeepScan(flagged, state.deepscanStats);
-    hideStatus();
-    showStatus(`Scan complete — ${flagged.length} task${flagged.length !== 1 ? 's' : ''} found.`, 'success');
-    setTimeout(hideStatus, 3500);
-  } catch (err) {
-    showStatus(err.message || 'Developer scan failed.', 'error');
-  } finally {
-    $btnDeepscan.disabled = false;
-  }
-}
+// ---------- Developer(s) query ----------
+// The Developer(s) field is set by hand and filters server-side, so this is one query
+// with no per-task lookups — no cap, no concurrency pool, no coverage gap. (It replaced
+// the old watcher/creator scan, which every copy of a task template polluted.)
 
 // One workspace-wide query: ClickUp filters the labels field server-side, so we never
 // enumerate spaces or fetch tasks individually.
@@ -858,37 +848,7 @@ async function fetchDeveloperTasks(teamId, token, optionId, startMs, endMs) {
 // The field only carries *who*, never *when* — so a range starting before the team
 // began filling it in would come back empty and read as "all clear". Say so instead.
 function devFieldCoversRange() {
-  return $dateFrom.value >= DEV_FIELD_START;
-}
-
-function updateDevScanAvailability() {
-  const ready = Boolean(state.token && state.devOptionId);
-  $btnDeepscan.disabled = !ready || $secDeepscan.classList.contains('disabled');
-}
-
-function renderDeepScan(list, stats) {
-  $deepscanCount.textContent = list.length ? `${list.length} found` : 'None found';
-
-  let html = '';
-
-  if (!devFieldCoversRange()) {
-    html += `<div class="deepscan-stats">⚠ Developer(s) tagging starts ${escHtml(DEV_FIELD_START)}. ` +
-            `Tasks before then mostly have the field empty, so this scan can't see them — ` +
-            `for earlier dates rely on the assigned-task check above.</div>`;
-  }
-
-  if (stats) {
-    html += `<div class="deepscan-stats">${escHtml(`Scanned ${stats.scanned} tasks tagged with your name`)}</div>`;
-  }
-
-  if (list.length === 0) {
-    html += `<div class="untracked-empty">No tasks tagged with your name are missing time in this range.</div>`;
-  } else {
-    html += list.map(t => taskItemHTML(t, defaultLogDate(), { showAssignee: true })).join('');
-  }
-  html += dismissedFooterHTML();
-
-  $deepscanList.innerHTML = html;
+  return activeRange().from >= DEV_FIELD_START;
 }
 
 // "90" -> "1h 30m", "30" -> "30m", "120" -> "2h"

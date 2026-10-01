@@ -308,7 +308,7 @@ Verified afterwards with a full regression pass (dates, code resolution, identit
 durations, pooling/retry, sheet-safe codes) plus a stubbed end-to-end run: connect → fetch → untracked →
 dismiss → log → restore → copy.
 
-## Phase 2.13 — NEXT UP: merge steps 04 + 05, add Refresh (planned 2026-10-01, not built)
+## Phase 2.13 — ✅ BUILT 2026-10-02: merge steps 04 + 05, add Refresh (stubbed-verified; not yet run against live ClickUp)
 
 Agreed with Gibson; resume here. Both depend on nothing outstanding — Add time and the Developer(s)
 scan were verified live on 2026-10-01.

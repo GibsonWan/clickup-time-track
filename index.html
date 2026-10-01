@@ -104,6 +104,13 @@
         <div class="card-header">
           <span class="step-badge">03</span>
           <h2 class="card-title">Preview &amp; Export</h2>
+          <div class="header-actions">
+            <span id="refresh-stamp" class="refresh-stamp" aria-live="polite"></span>
+            <button class="btn btn-refresh" id="btn-refresh" type="button" disabled title="Re-fetch the last fetched date range">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-3-6.7"/><polyline points="21 3 21 9 15 9"/></svg>
+              Refresh
+            </button>
+          </div>
         </div>
         <div id="summary" class="summary hidden"></div>
         <div class="table-wrap" id="table-wrap">
@@ -133,34 +140,17 @@
         </div>
       </section>
 
-      <!-- Step 4: Untracked Tasks -->
+      <!-- Step 4: Missing Time -->
       <section class="card disabled" id="section-untracked">
         <div class="card-header">
           <span class="step-badge">04</span>
-          <h2 class="card-title">Untracked Tasks</h2>
+          <h2 class="card-title">Missing Time</h2>
           <span id="untracked-count" class="untracked-count"></span>
         </div>
         <p class="card-desc">
-          Tasks assigned to you that are <strong>due within your selected dates</strong> — or have <strong>no due date</strong> but were active then — with <strong>no time logged</strong>. Time you may have forgotten to track; use <strong>Add time</strong> to log it without leaving this page.
+          Tasks you worked in your selected dates with <strong>no time logged</strong> — either <strong>assigned to you</strong> now, or tagged with your name in <strong>Developer(s)</strong> (which still catches tasks since reassigned). A task counts if it is <strong>due within the range</strong>, or has <strong>no due date</strong> but was active then. Use <strong>Add time</strong> to log it without leaving this page.
         </p>
         <div class="untracked-list" id="untracked-list"></div>
-      </section>
-
-      <!-- Step 5: Deep Scan (handed-off tasks) -->
-      <section class="card disabled" id="section-deepscan">
-        <div class="card-header">
-          <span class="step-badge">05</span>
-          <h2 class="card-title">Worked but Not Assigned</h2>
-          <span id="deepscan-count" class="untracked-count"></span>
-        </div>
-        <p class="card-desc">
-          Finds tasks tagged with your name in the <strong>Developer(s)</strong> field, <strong>due within your selected dates</strong> (or with no due date but active then), with <strong>no time logged</strong> — even if they've since been reassigned to someone else. Add yourself to <strong>Developer(s)</strong> on every task you work and it will be caught here.
-        </p>
-        <button class="btn btn-primary" id="btn-deepscan" disabled>
-          Find my tasks
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
-        </button>
-        <div class="untracked-list" id="deepscan-list"></div>
       </section>
 
       <div id="status-bar" class="status-bar hidden"></div>

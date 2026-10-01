@@ -151,6 +151,20 @@ body::before {
   margin-bottom: 12px;
 }
 
+.header-actions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.refresh-stamp {
+  font-size: 13px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+.btn-refresh svg { flex-shrink: 0; }
+.btn-refresh.is-loading svg { animation: spin .7s linear infinite; }
+
 .step-badge {
   font-size: 12px;
   font-weight: 600;
@@ -582,8 +596,7 @@ body::before {
 }
 .u-cancel:hover:not(:disabled) { color: var(--text-secondary); border-color: var(--border-strong); }
 
-#btn-deepscan { margin-bottom: 16px; }
-.deepscan-stats {
+.mt-note {
   font-size: 13.5px;
   color: var(--text-muted);
   padding: 8px 12px;
@@ -593,6 +606,7 @@ body::before {
   border-radius: var(--radius-sm);
   line-height: 1.6;
 }
+.u-pill.u-src { color: var(--text-secondary); }
 .u-pill.u-assignee { color: var(--accent); border-color: rgba(184,114,46,.28); background: var(--accent-light); }
 
 .untracked-empty, .untracked-note {
